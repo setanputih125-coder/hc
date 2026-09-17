@@ -26,6 +26,7 @@
     "@types/node": "^24.10.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "railway": "3.11.0",
     "tsx": "4.23.13",
     "typescript": "~5.9.3",
     "vite": "7.3.6"

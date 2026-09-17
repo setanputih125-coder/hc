@@ -43,12 +43,6 @@ export function PlayerBar({
           <strong>{current?.title || 'Make yourself at home'}</strong>
           <span>{current?.artist || 'Choose something to listen to'}</span>
         </div>
-        {current && (
-          <span
-            className={`source-dot ${current.source}`}
-            title="YouTube audio via yt-dlp"
-          />
-        )}
       </div>
       <div className="transport">
         <div className="transport-buttons">

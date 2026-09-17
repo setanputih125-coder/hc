@@ -109,7 +109,7 @@ export function normalizeTrack(info: Extracted): Track | undefined {
 export function extractorError(stderr: string): ServiceError {
   if (/No module named|ENOENT/i.test(stderr))
     return new ServiceError(
-      'yt-dlp is unavailable. Run the setup script to install Python, yt-dlp, and yt-dlp-ejs.',
+      'The music service is unavailable. Run the server setup script to install its audio dependencies.',
       503,
     );
   if (/sign in|not a bot|login required|confirm your age|cookies/i.test(stderr))
@@ -136,7 +136,7 @@ export function extractorError(stderr: string): ServiceError {
       429,
     );
   return new ServiceError(
-    'yt-dlp could not load this music. Check connectivity and the installed yt-dlp version, then retry.',
+    'Could not load this music. Check your server connection, update its audio dependencies, then retry.',
   );
 }
 

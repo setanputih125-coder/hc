@@ -164,12 +164,12 @@ test('LRCLIB identifies the client, searches sequentially, caches, and matches c
   assert.equal((await service.get(record.id)).record?.id, record.id);
   assert.equal((await service.get(record.id)).plain, record.plainLyrics);
   assert.equal(calls, 1);
-  await Promise.all([service.search('one'), service.search('two')]);
+  await Promise.all([service.search('one', 30), service.search('two', 30)]);
   assert.equal(maximum, 1);
   const mismatch = await service.lookup({ ...track, duration: 250 });
   assert.equal(mismatch.matched, false);
   assert.equal(mismatch.lines.length, 0);
-  assert.equal(mismatch.candidates?.length, 1);
+  assert.equal(mismatch.candidates?.length, 0);
 });
 
 test('plain and instrumental records stay untimed and explicit', async () => {
@@ -221,16 +221,119 @@ test('LRCLIB Retry-After is honored across all requests without automatic retry 
       headers: { 'Retry-After': '60' },
     });
   }, 0);
-  await assert.rejects(limited.search('one'), /rate-limiting/);
-  await assert.rejects(limited.search('two'), /rate-limiting/);
+  await assert.rejects(limited.search('one', 30), /rate-limiting/);
+  await assert.rejects(limited.search('two', 30), /rate-limiting/);
   assert.equal(calls, 1);
   const offline = new LrcLib(async () => {
     throw new Error('offline');
   }, 0);
-  await assert.rejects(offline.search('test'), /Your music can keep playing/);
+  await assert.rejects(offline.search('test', 30), /Your music can keep playing/);
   const missing = new LrcLib(
     async () => new Response('{}', { status: 404 }),
     0,
   );
   await assert.rejects(missing.get(123), /not found/);
+});
+
+test('lyrics search only returns the same displayed second, including fractional durations', async () => {
+  let calls = 0;
+  const durations = [
+    180, 239, 239.999, 240, 240.99, 241, 360, 0, -1, null, '240',
+  ];
+  const service = new LrcLib(async (input) => {
+    calls++;
+    const url = new URL(String(input));
+    assert.equal(url.pathname, '/api/search');
+    assert.equal(url.searchParams.get('q'), 'Test artist Original test song');
+    return new Response(
+      JSON.stringify([
+        ...durations.map((duration, id) => ({ ...record, id, duration })),
+        { ...record, id: 99, duration: undefined },
+      ]),
+    );
+  }, 0);
+  const query = 'Test artist Original test song';
+  assert.deepEqual(
+    (await service.search(query, 240)).map((r) => r.duration),
+    [240, 240.99],
+  );
+  assert.deepEqual(
+    (await service.search(query, 240.999)).map((r) => r.duration),
+    [240, 240.99],
+  );
+  assert.deepEqual(
+    (await service.search(query, 239)).map((r) => r.duration),
+    [239, 239.999],
+  );
+  assert.deepEqual(
+    (await service.search(query, 241)).map((r) => r.duration),
+    [241],
+  );
+  assert.deepEqual(await service.search(query, 250), []);
+  assert.equal(calls, 1);
+});
+
+test('automatic lyrics reject a nearby exact-endpoint duration and filter fallback candidates before matching', async () => {
+  const paths: string[] = [];
+  const service = new LrcLib(async (input) => {
+    const path = new URL(String(input)).pathname;
+    paths.push(path);
+    return new Response(
+      JSON.stringify(
+        path === '/api/get'
+          ? { ...record, duration: 241 }
+          : [
+              { ...record, id: 1, duration: 241 },
+              { ...record, id: 2, duration: 240.5 },
+              { ...record, id: 3, duration: 239.99 },
+              { ...record, id: 4, duration: null },
+            ],
+      ),
+    );
+  }, 0);
+  const result = await service.lookup({ ...track, duration: 240 });
+  assert.equal(result.matched, true);
+  assert.equal(result.recordId, 2);
+  assert.deepEqual(result.candidates?.map((r) => r.id), [2]);
+  assert.deepEqual(paths, ['/api/get', '/api/search']);
+});
+
+test('duration-matched candidates still require matching metadata and an unambiguous recording', async () => {
+  const service = new LrcLib(
+    async () => new Response(JSON.stringify([
+      { ...record, id: 1, duration: 240 },
+      { ...record, id: 2, duration: 240.5 },
+      { ...record, id: 3, duration: 241 },
+    ])),
+    0,
+  );
+  for (const lyricsArtist of [track.lyricsArtist, 'Other artist', undefined]) {
+    const result = await service.lookup({
+      ...track,
+      album: 'YouTube',
+      duration: 240,
+      lyricsArtist,
+    });
+    assert.equal(result.matched, false);
+    assert.equal(result.lines.length, 0);
+    assert.deepEqual(result.candidates?.map((r) => r.id), [1, 2]);
+  }
+});
+
+test('unknown or invalid track durations never trigger an unfiltered provider search', async () => {
+  let calls = 0;
+  const service = new LrcLib(async () => {
+    calls++;
+    return new Response(JSON.stringify([record]));
+  }, 0);
+  for (const duration of [0, -1, NaN, Infinity, -Infinity]) {
+    await assert.rejects(
+      service.search('Test song', duration),
+      /valid track duration/,
+    );
+    const result = await service.lookup({ ...track, duration });
+    assert.equal(result.matched, false);
+    assert.deepEqual(result.candidates, []);
+  }
+  assert.equal(calls, 0);
 });

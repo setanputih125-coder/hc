@@ -18,6 +18,7 @@ import { timeLabel } from './PlayerBar';
 export function LyricsPanel({
   track,
   position,
+  duration,
   getPosition,
   seek,
   loading: resolving,
@@ -25,6 +26,7 @@ export function LyricsPanel({
 }: {
   track?: Track;
   position: number;
+  duration: number;
   getPosition: () => number;
   seek: (time: number) => void;
   loading: boolean;
@@ -52,6 +54,10 @@ export function LyricsPanel({
   const scrollArea = useRef<HTMLDivElement>(null);
   const request = useRef<AbortController | undefined>(undefined);
   const active = activeLyric(lyrics?.lines ?? [], position + offset);
+  const searchDuration =
+    Number.isFinite(duration) && duration > 0
+      ? Math.floor(duration)
+      : undefined;
 
   useEffect(() => {
     request.current?.abort();
@@ -75,9 +81,16 @@ export function LyricsPanel({
       setLoading(false);
       return;
     }
+    if (!searchDuration) {
+      setLoading(false);
+      setFindOpen(true);
+      return;
+    }
     setLoading(true);
     api<Lyrics>(
-      selected ? `/api/lyrics/${selected}` : `/api/tracks/${track.id}/lyrics`,
+      selected
+        ? `/api/lyrics/${selected}`
+        : `/api/tracks/${track.id}/lyrics?duration=${searchDuration}`,
       'GET',
       undefined,
       controller.signal,
@@ -100,7 +113,7 @@ export function LyricsPanel({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => request.current?.abort();
-  }, [track?.id, resolving, enabled, retry]);
+  }, [track?.id, resolving, enabled, retry, searchDuration]);
   useEffect(() => {
     const line = currentLine.current;
     const container = scrollArea.current;
@@ -153,14 +166,16 @@ export function LyricsPanel({
   }
 
   async function search() {
+    if (!searchDuration || resolving) return;
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     setLoading(true);
     setError('');
+    setCandidates([]);
     try {
       const results = await api<LyricCandidate[]>(
-        `/api/lyrics/search?q=${encodeURIComponent(query.trim())}`,
+        `/api/lyrics/search?q=${encodeURIComponent(query.trim())}&duration=${searchDuration}`,
         'GET',
         undefined,
         controller.signal,
@@ -293,6 +308,11 @@ export function LyricsPanel({
           )}
           {findOpen && (
             <div className="lyrics-finder">
+              <p className="field-help" role="status">
+                {searchDuration
+                  ? `Only recordings with duration ${timeLabel(searchDuration)} are shown (same displayed second).`
+                  : 'The track duration is not available yet. Lyrics search needs a known duration.'}
+              </p>
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -311,7 +331,9 @@ export function LyricsPanel({
                 </label>
                 <button
                   className="outline-button"
-                  disabled={loading || !query.trim()}
+                  disabled={
+                    loading || resolving || !query.trim() || !searchDuration
+                  }
                 >
                   <Search size={15} />
                   Find lyrics
@@ -344,22 +366,16 @@ export function LyricsPanel({
                               ? 'Synced'
                               : 'Plain text'}
                         </small>
-                        {track.duration > 0 &&
-                          Math.abs(candidate.duration - track.duration) > 2 && (
-                            <small>
-                              Different duration · video{' '}
-                              {timeLabel(track.duration)}
-                            </small>
-                          )}
                       </button>
                     ))}
                   </div>
                 </>
               ) : (
-                !loading && (
+                !loading && !error && !!searchDuration && (
                   <p className="field-help">
-                    No matching lyrics found. Try a cleaner song title and
-                    artist name. No timing or words are invented.
+                    No lyrics found for {timeLabel(searchDuration)}. Try a
+                    cleaner song title and artist name. Other durations are not
+                    shown.
                   </p>
                 )
               )}

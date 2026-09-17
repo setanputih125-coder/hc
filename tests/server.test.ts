@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request } from 'node:http';
 import { createApp } from '../server/app.js';
 import { Collection } from '../server/collection.js';
 import { parseRange } from '../server/range.js';
@@ -43,6 +44,8 @@ const lyricService: LyricsService = {
 async function fixture(password?: string) {
   const dataDir = await mkdtemp(join(tmpdir(), 'undertone-online-'));
   const refreshes: boolean[] = [];
+  const lyricSearches: { query: string; duration: number }[] = [];
+  const lyricLookups: number[] = [];
   let blocked = false;
   let hostile = false;
   let redirected = false;
@@ -112,7 +115,17 @@ async function fixture(password?: string) {
     dataDir,
     password,
     music,
-    lyrics: lyricService,
+    lyrics: {
+      ...lyricService,
+      search: async (query, duration) => {
+        lyricSearches.push({ query, duration });
+        return lyricService.search(query, duration);
+      },
+      lookup: async (track) => {
+        lyricLookups.push(track.duration);
+        return lyricService.lookup(track);
+      },
+    },
     fetcher,
   });
   const server = app.listen(0, '127.0.0.1');
@@ -136,9 +149,12 @@ async function fixture(password?: string) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   return {
+    base,
     dataDir,
     send,
     refreshes,
+    lyricSearches,
+    lyricLookups,
     setBlocked: () => {
       blocked = true;
     },
@@ -155,6 +171,91 @@ async function fixture(password?: string) {
     },
   };
 }
+
+test('deployment healthchecks stay public without weakening host or session checks', async (t) => {
+  const f = await fixture('test-password');
+  t.after(f.close);
+  const probe = (path: string, method = 'GET') =>
+    new Promise<{ status: number; body: string; cacheControl?: string }>(
+      (resolve, reject) => {
+        const req = request(
+          f.base + path,
+          { method, headers: { Host: 'healthcheck.railway.app' } },
+          (res) => {
+            let body = '';
+            res.setEncoding('utf8');
+            res.on('data', (chunk) => {
+              body += chunk;
+            });
+            res.on('error', reject);
+            res.on('end', () => {
+              resolve({
+                status: res.statusCode!,
+                body,
+                cacheControl: res.headers['cache-control'],
+              });
+            });
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      },
+    );
+  const response = await probe('/healthz');
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { status: 'ok' });
+  assert.equal(response.cacheControl, 'no-store');
+  assert.equal((await probe('/healthz', 'HEAD')).status, 200);
+  assert.equal((await f.send('/api/library')).status, 401);
+  assert.equal((await probe('/api/library')).status, 403);
+  assert.equal((await probe('/api/health')).status, 403);
+});
+
+test('lyrics HTTP routes validate duration and pass the current player duration to the provider', async (t) => {
+  const f = await fixture();
+  t.after(f.close);
+  for (const suffix of [
+    '',
+    '&duration=',
+    '&duration=0',
+    '&duration=-1',
+    '&duration=NaN',
+    '&duration=Infinity',
+    '&duration=abc',
+    '&duration[]=240',
+    '&duration=240&duration=241',
+  ]) {
+    assert.equal(
+      (await f.send(`/api/lyrics/search?q=test${suffix}`)).status,
+      400,
+      suffix,
+    );
+    if (suffix)
+      assert.equal(
+        (await f.send(`/api/tracks/${track.id}/lyrics?${suffix.slice(1)}`)).status,
+        400,
+        suffix,
+      );
+  }
+  assert.deepEqual(f.lyricSearches, []);
+  assert.deepEqual(f.lyricLookups, []);
+  assert.equal(
+    (await f.send('/api/lyrics/search?q=Test%20song&duration=240.75')).status,
+    200,
+  );
+  assert.deepEqual(f.lyricSearches, [
+    { query: 'Test song', duration: 240.75 },
+  ]);
+  assert.equal(
+    (await f.send(`/api/tracks/${track.id}/lyrics?duration=240.75`)).status,
+    200,
+  );
+  assert.equal(
+    (await f.send(`/api/tracks/${track.id}/lyrics`)).status,
+    200,
+  );
+  assert.deepEqual(f.lyricLookups, [240.75, track.duration]);
+});
 
 test('real HTTP online music, range proxy, remote playlists and online lyrics', async (t) => {
   const f = await fixture();

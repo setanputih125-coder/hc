@@ -14,8 +14,17 @@ interface RecordLyrics {
 }
 export interface LyricsService {
   lookup(track: Track): Promise<Lyrics>;
-  search(query: string): Promise<LyricCandidate[]>;
+  search(query: string, duration: number): Promise<LyricCandidate[]>;
   get(id: number): Promise<Lyrics>;
+}
+function sameDuration(recordDuration: number, trackDuration: number) {
+  return (
+    Number.isFinite(recordDuration) &&
+    Number.isFinite(trackDuration) &&
+    recordDuration > 0 &&
+    trackDuration > 0 &&
+    Math.floor(recordDuration) === Math.floor(trackDuration)
+  );
 }
 const normalized = (value: string) =>
   value
@@ -30,7 +39,7 @@ export function exactLyrics(records: RecordLyrics[], track: Track) {
       normalized(record.trackName) ===
         normalized(track.lyricsTitle || track.title) &&
       normalized(record.artistName) === normalized(track.lyricsArtist!) &&
-      Math.abs(record.duration - track.duration) <= 2,
+      sameDuration(record.duration, track.duration),
   );
   const albumMatches =
     track.album !== 'YouTube'
@@ -189,6 +198,14 @@ export class LrcLib implements LyricsService {
   }
 
   async lookup(track: Track): Promise<Lyrics> {
+    if (!Number.isFinite(track.duration) || track.duration <= 0)
+      return {
+        lines: [],
+        plain: '',
+        origin: 'none',
+        matched: false,
+        candidates: [],
+      };
     if (track.lyricsArtist && track.duration > 0 && track.album !== 'YouTube') {
       const signature = new URLSearchParams({
         track_name: track.lyricsTitle || track.title,
@@ -225,7 +242,9 @@ export class LrcLib implements LyricsService {
       track_name: track.lyricsTitle || track.title,
     });
     if (track.lyricsArtist) parameters.set('artist_name', track.lyricsArtist);
-    const records = await this.records(parameters);
+    const records = (await this.records(parameters)).filter((record) =>
+      sameDuration(record.duration, track.duration),
+    );
     const match = exactLyrics(records, track);
     return {
       ...(match
@@ -235,10 +254,15 @@ export class LrcLib implements LyricsService {
       candidates: records.map(candidate),
     };
   }
-  async search(query: string) {
-    return (await this.records(new URLSearchParams({ q: query }))).map(
-      candidate,
-    );
+  async search(query: string, duration: number) {
+    if (!Number.isFinite(duration) || duration <= 0)
+      throw new ServiceError(
+        'A valid track duration is required to find lyrics.',
+        400,
+      );
+    return (await this.records(new URLSearchParams({ q: query })))
+      .filter((record) => sameDuration(record.duration, duration))
+      .map(candidate);
   }
   async get(id: number): Promise<Lyrics> {
     const record = await this.request<RecordLyrics>(`get/${id}`);

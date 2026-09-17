@@ -24,6 +24,16 @@ export interface AppOptions {
   fetcher?: typeof fetch;
 }
 
+function lyricsDuration(value: unknown) {
+  const duration = typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(duration) || duration <= 0)
+    throw new ServiceError(
+      'A valid track duration is required to find lyrics.',
+      400,
+    );
+  return duration;
+}
+
 export async function createApp(options: AppOptions) {
   const collection = new Collection(resolve(options.dataDir));
   await collection.init();
@@ -44,6 +54,9 @@ export async function createApp(options: AppOptions) {
   );
   const hosts = new Set([...origins].map((origin) => new URL(origin).hostname));
   const digest = (value: string) => createHash('sha256').update(value).digest();
+  app.get('/healthz', (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ status: 'ok' });
+  });
   app.use((req, res, next) => {
     res.set({
       'X-Content-Type-Options': 'nosniff',
@@ -383,7 +396,7 @@ export async function createApp(options: AppOptions) {
     const query = String(req.query.q ?? '').trim();
     if (!query || query.length > 200)
       throw new ServiceError('Use a lyrics search of 1–200 characters.', 400);
-    res.json(await lyrics.search(query));
+    res.json(await lyrics.search(query, lyricsDuration(req.query.duration)));
   });
   app.get('/api/lyrics/:id', async (req, res) => {
     if (!collection.settings.lyricsEnabled)
@@ -395,7 +408,14 @@ export async function createApp(options: AppOptions) {
   app.get('/api/tracks/:id/lyrics', async (req, res) => {
     if (!collection.settings.lyricsEnabled)
       throw new ServiceError('Online lyrics are disabled in Settings.', 403);
-    res.json(await lyrics.lookup(await music.track(req.params.id)));
+    const duration =
+      Object.keys(req.query).length === 0
+        ? undefined
+        : lyricsDuration(req.query.duration);
+    const track = await music.track(req.params.id);
+    res.json(
+      await lyrics.lookup({ ...track, duration: duration ?? track.duration }),
+    );
   });
   app.use('/api', (_req, res) =>
     res.status(404).json({ error: 'Unknown API endpoint.' }),

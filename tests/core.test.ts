@@ -151,11 +151,13 @@ test('automatic lyrics need matching title, artist, duration and an unambiguous 
     trackName: 'A Song',
     artistName: 'Singer',
     albumName: 'Album',
-    duration: 201,
+    duration: 200.6,
     instrumental: false,
     syncedLyrics: '[00:01]Original test words',
   };
   assert.equal(exactLyrics([record], track)?.id, 1);
+  for (const duration of [199.999, 201, 202])
+    assert.equal(exactLyrics([{ ...record, duration }], track), undefined);
   assert.equal(exactLyrics([{ ...record, duration: 220 }], track), undefined);
   assert.equal(
     exactLyrics([{ ...record, artistName: 'Other' }], track),

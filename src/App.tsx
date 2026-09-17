@@ -321,7 +321,6 @@ export function App() {
           <span>#</span>
           <span>Title · Artist / channel</span>
           <span className="track-album">Album</span>
-          <span className="track-format">Source</span>
           <span>Time</span>
           <span />
         </div>
@@ -355,9 +354,6 @@ export function App() {
             <Play className="row-play" size={16} fill="currentColor" />
           </button>
           <span className="track-album">{track.album}</span>
-          <span className="track-format">
-            <span className="format-tag">yt-dlp</span>
-          </span>
           <span className="track-time">
             {track.duration ? timeLabel(track.duration) : '—'}
           </span>
@@ -409,11 +405,6 @@ export function App() {
           </span>
         </button>
         <span className="sidebar-caption">YOUR LISTENING ROOM</span>
-        <div className="engine-chip">
-          <span className="youtube-mark">▶</span>
-          <strong>YouTube</strong>
-          <span>yt-dlp</span>
-        </div>
         <nav aria-label="Main navigation">
           <button
             className={view === 'home' ? 'nav-active' : ''}
@@ -481,7 +472,7 @@ export function App() {
             Settings & connections
           </button>
           <span className="version">
-            UNDERTONE<span>yt-dlp + LRCLIB</span>
+            UNDERTONE<span>Your listening room</span>
           </span>
         </div>
       </aside>
@@ -520,7 +511,7 @@ export function App() {
               className={`status-light ${health?.available ? '' : 'offline'}`}
             />
             {health?.available
-              ? 'yt-dlp connected'
+              ? 'Music connected'
               : 'Connecting to your server'}
           </div>
           <button
@@ -592,7 +583,7 @@ export function App() {
               <div className="page-heading">
                 <div>
                   <span className="eyebrow">
-                    MUSIC FROM YOUTUBE · WORDS FROM LRCLIB
+                    YOUR MUSIC · YOUR MOMENT
                   </span>
                   <h1>
                     {playlist?.name ||
@@ -656,8 +647,8 @@ export function App() {
               </div>
               {!health?.available && (
                 <div className="notice error" role="alert">
-                  <strong>Connect your extractor.</strong>
-                  <p>{health?.message || 'Checking yt-dlp on your server…'}</p>
+                  <strong>Check your music connection.</strong>
+                  <p>{health?.message || 'Checking your music connection…'}</p>
                   <button className="text-button" onClick={refreshHealth}>
                     Check again
                   </button>
@@ -706,8 +697,8 @@ export function App() {
                         </button>
                       </div>
                       <span className="hero-footnote">
-                        <span className="tiny-wave">▂▅▃▆▂</span>yt-dlp audio.
-                        Online lyrics. Nothing to upload.
+                        <span className="tiny-wave">▂▅▃▆▂</span>Music and lyrics.
+                        Nothing to upload.
                       </span>
                     </div>
                     <div className="hero-art">
@@ -741,7 +732,7 @@ export function App() {
               {(view === 'home' || (view === 'playlists' && !playlist)) && (
                 <section className="youtube-connect">
                   <div className="section-heading">
-                    <span className="youtube-mark">▶</span>
+                    <Music2 size={20} />
                     <h2>Bring a link, not a file.</h2>
                   </div>
                   <p>
@@ -781,7 +772,7 @@ export function App() {
               {(view === 'home' || view === 'songs') && remoteLoading && (
                 <div className="loading-line">
                   <LoaderCircle className="spin" size={17} />
-                  Finding music through yt-dlp…
+                  Finding your music…
                 </div>
               )}
               {view === 'playlists' && !playlist ? (
@@ -857,7 +848,7 @@ export function App() {
                               ? 'Add songs with the + button in search results or your saved songs.'
                               : view === 'library'
                                 ? 'Tap the heart beside a song to save it here.'
-                                : 'Try another search, paste a public YouTube link, or check the extractor connection.'}
+                                : 'Try another search, paste a public YouTube link, or check your music connection.'}
                           </p>
                         </div>
                       )}
@@ -1006,6 +997,7 @@ export function App() {
               key={player.current?.id}
               track={player.current}
               position={player.position}
+              duration={player.duration}
               getPosition={player.getPosition}
               seek={player.seek}
               loading={player.loading}

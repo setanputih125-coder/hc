@@ -70,6 +70,22 @@ All committed lyric fixtures are original test phrases. Automated provider tests
 - Rapid forward/backward line clicks during real playback settled on the last selected cue: its timestamp was 36.71 seconds, actual audio time was 36.746 seconds after resuming, and that cue remained active. Test corrections were reset to zero afterward. At 390×667, the scrollable lyrics panel ended above the player instead of covering it; the 390×844 layout also stayed within the viewport width.
 - The specific recording reported as out of sync has not been supplied. A constant offset cannot fix a different recording or progressive timing drift, and this app does not claim acoustic/ASR alignment of arbitrary provider lyrics.
 
+### Duration filtering and track-row spacing — 17 September 2026
+
+- LRCLIB search has no documented duration parameter. Undertone filters returned records locally on the server, including automatic lookup and manual search. A match requires the same whole second displayed by the player; 240–240.999 seconds qualify as 4:00, while 239.999 and 241 do not. This is stricter than LRCLIB's own ±2-second exact-lookup tolerance.
+- The panel passes the current audio-player duration, refreshes when that displayed duration changes, and cancels stale requests. Missing duration prevents searching; no duration match produces an empty result rather than unrelated recording lengths. Cached query results are filtered again for each requested duration.
+- Live browser verification used the Judy Collins “Amazing Grace” video `CqqJRGLnWw0`. Its stream duration was 247.821 seconds (4:07); manual search returned two real LRCLIB candidates, both displayed as 4:07. A nonexistent title returned zero candidates with an explicit 4:07 empty-state message. An initial LRCLIB 503 was reported separately from an empty result; subsequent manual searches succeeded while audio remained playable.
+- Track rows reserve 77 pixels for three 25-pixel action buttons and two 1-pixel gaps, with an intrinsic-width, non-wrapping duration column. Narrow navigation margins also match the 14-pixel sidebar padding below 360 pixels.
+- The automated suite covers strict second boundaries, fractional and malformed durations, absent matches, ambiguous recordings, cache reuse across different durations, rejection of nearby exact-endpoint records, and HTTP duration validation.
+
+### Interface cleanup and Railway deployment — 17 September 2026
+
+- Removed the provider badge, source column, player indicator, extractor-specific copy, settings link, and associated styles. Backend failures use generic music-service messages. Search and playback still use the same backend integration.
+- Railway's current official documentation recommends project-level Infrastructure as Code. `.railway/railway.ts` was evaluated with `railway` SDK 3.11.0 and tested for its source branch, Dockerfile builder, single replica, shared password reference, `/data` volume, public-origin reference, and `/healthz` probe.
+- All 41 tests, TypeScript checks, and the production build passed. Browser checks covered Home and Settings at desktop width, plus 320- and 390-pixel layouts without provider badges, extractor names, overlapping duration cells, or horizontal overflow.
+- A separate production-process smoke check used Railway-style bind/port/origin variables and a temporary data directory. It passed static-client serving, the exact Railway healthcheck Host header, unauthenticated API rejection, secure login-cookie issuance, persisted settings across a process restart, and graceful shutdown.
+- The Dockerfile was checked structurally, but no container image was built because this sandbox has no Docker runtime. No Railway account was authenticated, no resources were deployed, and no public one-click template URL was created. The deployment guide includes both account-side publishing steps and the need to verify real playback from Railway's network.
+
 ### Still needs physical-device / ongoing testing
 
 - Installation from scratch on actual Termux architectures, including the Android esbuild binary and virtual-environment/pip behavior.

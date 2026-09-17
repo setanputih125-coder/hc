@@ -63,6 +63,14 @@ Recording choices and offsets are remembered per video and lyrics version in you
 
 Lyrics availability and timestamp accuracy depend on the recording. Use **Find another version** when the arrangement differs or timing drifts throughout the song.
 
+Automatic matching and **Find lyrics** only use recordings with the same displayed duration as the player: a **4:00** song shows **4:00** results, not **3:59** or **4:01**. Fractions within the same displayed second are accepted. If no recording matches, the results stay empty. Lyrics search waits until the track duration is known.
+
+## Deploy on Railway
+
+Use the included **Dockerfile** and **`.railway/railway.ts`** template to run Undertone with persistent storage, password-protected access, and a deployment healthcheck.
+
+Follow the [Railway deployment guide](docs/railway.md) for browser-based setup, template commands, required variables, and publishing a one-click template from your account.
+
 ## Configuration
 
 To customize the server, copy `.env.example` to `.env`:

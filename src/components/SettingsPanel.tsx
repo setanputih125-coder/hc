@@ -46,13 +46,11 @@ export function SettingsPanel({
         <section className="settings-card">
           <div className="section-heading">
             <Radio />
-            <h2>YouTube · yt-dlp</h2>
-            <span className="pill">NO API KEY</span>
+            <h2>Audio streaming</h2>
           </div>
           <p>
-            Search or paste a YouTube link. Your server resolves an on-demand
-            audio stream using yt-dlp and sends its original bytes to your
-            browser.
+            Search or paste a YouTube link. Your server streams audio directly
+            to your browser when you press play.
           </p>
           <div className="connection-row">
             <span>
@@ -60,13 +58,13 @@ export function SettingsPanel({
                 className={`status-light ${health?.available ? '' : 'offline'}`}
               />
               {health?.available
-                ? `yt-dlp ${health.version}`
-                : 'Extractor unavailable'}
+                ? 'Music service connected'
+                : 'Music service unavailable'}
             </span>
             <button
               type="button"
               className="icon-button"
-              aria-label="Check extractor status"
+              aria-label="Check music connection"
               onClick={refresh}
             >
               <RefreshCw size={16} />
@@ -111,15 +109,6 @@ export function SettingsPanel({
               </p>
             </div>
           </div>
-          <a
-            className="external-link"
-            href="https://github.com/yt-dlp/yt-dlp"
-            target="_blank"
-            rel="noreferrer"
-          >
-            yt-dlp project and updates
-            <ExternalLink size={14} />
-          </a>
         </section>
         <section className="settings-card">
           <div className="section-heading">
@@ -189,7 +178,6 @@ export function SettingsPanel({
           Google API keys are collected.
         </p>
         <p>
-          yt-dlp is an independent integration, not the official YouTube API.
           YouTube changes, regional restrictions, and verification requirements
           can prevent playback. This app does not connect private accounts or
           unlock restricted videos. Browser and Android battery policies control

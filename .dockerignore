@@ -1,0 +1,12 @@
+.git
+.hoplite
+.venv
+.test-build
+node_modules
+dist
+data
+.env
+.env.*
+*.log
+docs
+README.md
