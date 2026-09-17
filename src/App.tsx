@@ -515,11 +515,13 @@ export function App() {
               : 'Connecting to your server'}
           </div>
           <button
-            className="avatar"
+            className="settings-shortcut"
             aria-label="Open settings"
+            aria-current={view === 'settings' ? 'page' : undefined}
             onClick={() => navigate('settings')}
           >
-            <Headphones size={19} />
+            <Settings2 size={19} />
+            <span>Settings</span>
           </button>
         </header>
         <main>

@@ -436,7 +436,7 @@ kbd {
 .status-light.offline {
   background: #f0a183;
 }
-.avatar {
+.settings-shortcut {
   width: 31px;
   height: 31px;
   border: 1px solid #4a543e;
@@ -447,6 +447,14 @@ kbd {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+.settings-shortcut span {
+  display: none;
+}
+.settings-shortcut[aria-current='page'] {
+  background: var(--green);
+  border-color: var(--green);
+  color: #192313;
 }
 .main-shell main {
   padding: 36px 40px 0;
@@ -1785,7 +1793,7 @@ kbd {
   .server-status {
     display: none;
   }
-  .avatar {
+  .settings-shortcut {
     margin-left: auto;
   }
   .main-shell main {
@@ -1994,6 +2002,7 @@ kbd {
   }
   .search-box {
     height: 37px;
+    min-width: 0;
     max-width: none;
     border-radius: 7px;
     padding: 0 11px;
@@ -2008,9 +2017,17 @@ kbd {
     width: 16px;
     height: 16px;
   }
-  .avatar {
-    height: 30px;
-    width: 30px;
+  .settings-shortcut {
+    height: 44px;
+    min-width: 44px;
+    width: auto;
+    padding: 0 10px;
+    gap: 6px;
+    border-radius: 7px;
+  }
+  .settings-shortcut span {
+    display: inline;
+    font-size: 11px;
   }
   .main-shell main {
     padding: 19px 20px 0;
