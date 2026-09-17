@@ -1,0 +1,36 @@
+{
+  "name": "undertone",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "node --env-file-if-exists=.env dist/server/index.js",
+    "check": "tsc -p tsconfig.server.json && tsc -p tsconfig.json",
+    "test": "node scripts/test.mjs",
+    "setup": "bash scripts/setup.sh",
+    "setup:termux": "bash scripts/termux-setup.sh"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "lucide-react": "^0.577.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tsx": "4.23.13",
+    "typescript": "~5.9.3",
+    "vite": "7.3.6"
+  },
+  "overrides": {
+    "rollup": "npm:@rollup/wasm-node@4.63.3"
+  }
+}

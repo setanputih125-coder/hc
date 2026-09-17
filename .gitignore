@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.test-build/
+.venv/
+data/
+.env
+.env.*
+!.env.example
+.hoplite/artifacts/
+*.log
