@@ -4,7 +4,9 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  BarChart3,
   Check,
+  Command as CommandIcon,
   ExternalLink,
   Headphones,
   Heart,
@@ -17,10 +19,12 @@ import {
   Play,
   Plus,
   Radio,
+  RadioTower,
   RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
+  Timer,
   X,
 } from 'lucide-react';
 import type {
@@ -29,18 +33,29 @@ import type {
   Library,
   Playlist,
   Settings,
+  PlayerState,
+  Stats,
   Track,
 } from '../shared/types';
+import { defaultSettings, THEMES } from '../shared/settings';
 import { youtubeLink } from '../shared/youtube';
 import { api } from './api';
 import { Artwork } from './components/Artwork';
+import { CommandPalette, type Command } from './components/CommandPalette';
 import { LyricsPanel } from './components/LyricsPanel';
 import { PlayerBar, timeLabel } from './components/PlayerBar';
 import { PlaybackOptions } from './components/PlaybackOptions';
 import { SettingsPanel } from './components/SettingsPanel';
+import { StatsPanel } from './components/StatsPanel';
 import { usePlayer } from './usePlayer';
 
-type View = 'home' | 'songs' | 'library' | 'playlists' | 'settings';
+type View =
+  | 'home'
+  | 'songs'
+  | 'library'
+  | 'playlists'
+  | 'listening'
+  | 'settings';
 type Catalog =
   | { kind: 'search'; query: string }
   | { kind: 'playlist'; id: string }
@@ -67,10 +82,9 @@ export function App() {
     favorites: [],
     playlists: [],
   });
-  const [settings, setSettings] = useState<Settings>({
-    audioFormat: 'best',
-    lyricsEnabled: true,
-  });
+  const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [stats, setStats] = useState<Stats>();
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [health, setHealth] = useState<Health>();
   const [authenticated, setAuthenticated] = useState<boolean>();
   const [password, setPassword] = useState('');
@@ -87,6 +101,9 @@ export function App() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState('');
   const [selectedPlaylist, setSelectedPlaylist] = useState<string>();
+  // A watch link that also carries a list plays from within that list once it loads.
+  const startAt = useRef<string | undefined>(undefined);
+  const opened = useRef(false);
   const [panel, setPanel] = useState('');
   const [playlistDialog, setPlaylistDialog] = useState<{ track?: Track }>();
   const [playlistName, setPlaylistName] = useState('');
@@ -96,7 +113,15 @@ export function App() {
     (text: string) => setMessage({ text, error: true }),
     [],
   );
-  const player = usePlayer(notify);
+  const announce = useCallback(
+    (text: string) => setMessage({ text, error: false }),
+    [],
+  );
+  const player = usePlayer({
+    onError: notify,
+    onNotice: announce,
+    settings,
+  });
   const playlist = library.playlists.find(
     (item) => item.id === selectedPlaylist,
   );
@@ -114,6 +139,13 @@ export function App() {
   async function refreshLibrary() {
     setLibrary(await api<Library>('/api/library'));
   }
+  async function refreshStats() {
+    try {
+      setStats(await api<Stats>('/api/stats'));
+    } catch {
+      // Statistics are optional; a failure must not block the view.
+    }
+  }
   async function refreshHealth() {
     try {
       setHealth(await api<Health>('/api/health'));
@@ -127,14 +159,19 @@ export function App() {
       const session = await api<{ authenticated: boolean }>('/api/session');
       setAuthenticated(session.authenticated);
       if (session.authenticated) {
-        const [library, preferences, engine] = await Promise.all([
-          api<Library>('/api/library'),
-          api<Settings>('/api/settings'),
-          api<Health>('/api/health'),
-        ]);
+        const [library, preferences, engine, listening, saved] =
+          await Promise.all([
+            api<Library>('/api/library'),
+            api<Settings>('/api/settings'),
+            api<Health>('/api/health'),
+            api<Stats>('/api/stats'),
+            api<PlayerState>('/api/player'),
+          ]);
         setLibrary(library);
         setSettings(preferences);
         setHealth(engine);
+        setStats(listening);
+        player.restore(saved);
       }
     } catch (error) {
       setBootError((error as Error).message);
@@ -143,6 +180,43 @@ export function App() {
   useEffect(() => {
     void boot();
   }, []);
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+  }, [settings.theme]);
+  useEffect(() => {
+    if (!authenticated || view !== 'listening') return;
+    void refreshStats();
+  }, [authenticated, view, player.current?.id]);
+  useEffect(() => {
+    if (!authenticated) return;
+    const save = () => {
+      const state = player.snapshot();
+      if (!state.queue.length) return;
+      // keepalive lets the last write survive a tab close; sendBeacon cannot send
+      // the X-Undertone header the server requires for mutations.
+      void fetch('/api/player', {
+        method: 'PUT',
+        keepalive: true,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Undertone': '1',
+        },
+        body: JSON.stringify(state),
+      }).catch(() => undefined);
+    };
+    const timer = setInterval(save, 15_000);
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') save();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', save);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', save);
+      save();
+    };
+  }, [authenticated, player.queue, player.index]);
   useEffect(() => {
     if (!playlistDialog) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -187,6 +261,52 @@ export function App() {
     setQuery('');
     if (next === 'home') setCatalog({ kind: 'search', query: 'chill music' });
   }
+  function startRadio(track?: Track) {
+    const seed = track ?? player.current;
+    if (!seed) {
+      notify('Play a song first, then start its radio.');
+      return;
+    }
+    void action(async () => {
+      const mix = await api<CatalogPage>(`/api/tracks/${seed.id}/radio`);
+      await player.play([seed, ...mix.tracks]);
+      if (!player.radio) player.changeRadio();
+    }, 'Radio started from this song.');
+  }
+  function exportBackup() {
+    void action(async () => {
+      const backup = await api<unknown>('/api/backup');
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(backup, null, 2)], {
+          type: 'application/json',
+        }),
+      );
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `undertone-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }, 'Backup downloaded.');
+  }
+  function importBackup(file: File) {
+    void action(async () => {
+      if (file.size > 4_000_000)
+        throw new Error('That backup file is larger than 4 MB.');
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        throw new Error('That file is not valid JSON.');
+      }
+      const result = await api<{ settings: Settings }>(
+        '/api/backup',
+        'POST',
+        parsed,
+      );
+      setSettings(result.settings);
+      await refreshLibrary();
+    }, 'Backup restored.');
+  }
   async function loadRemote(append = false) {
     request.current?.abort();
     const controller = new AbortController();
@@ -213,13 +333,23 @@ export function App() {
           undefined,
           controller.signal,
         );
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted) {
         setRemote((previous) => ({
           ...result,
           tracks: append
             ? [...previous.tracks, ...result.tracks]
             : result.tracks,
         }));
+        // Only a link the listener just opened starts playing; search results never do.
+        if (opened.current && !append && result.tracks.length) {
+          const at = startAt.current
+            ? result.tracks.findIndex((item) => item.id === startAt.current)
+            : -1;
+          void player.play(result.tracks, at < 0 ? 0 : at);
+        }
+        opened.current = false;
+        startAt.current = undefined;
+      }
     } catch (error) {
       if (!controller.signal.aborted) setRemoteError((error as Error).message);
     } finally {
@@ -247,7 +377,10 @@ export function App() {
     setSelectedPlaylist(undefined);
     setView('songs');
     setLink('');
-    if (target?.playlistId && !target.videoId) {
+    if (target?.playlistId) {
+      // Keep the video so a "watch inside a list" link opens the list at that song.
+      startAt.current = target.videoId;
+      opened.current = true;
       setCatalog({ kind: 'playlist', id: target.playlistId });
       setQuery('');
     } else if (target?.videoId) {
@@ -313,6 +446,178 @@ export function App() {
       await refreshLibrary();
     });
   }
+
+  const commands: Command[] = [
+    {
+      id: 'toggle',
+      group: 'Playback',
+      label: player.playing ? 'Pause' : 'Play',
+      hint: 'Space',
+      keywords: 'resume stop',
+      run: () => void player.toggle(),
+    },
+    {
+      id: 'next',
+      group: 'Playback',
+      label: 'Next track',
+      hint: '→',
+      run: () => void player.skip(1),
+    },
+    {
+      id: 'previous',
+      group: 'Playback',
+      label: 'Previous track',
+      hint: '←',
+      run: () => void player.skip(-1),
+    },
+    {
+      id: 'shuffle',
+      group: 'Playback',
+      label: player.shuffle ? 'Turn shuffle off' : 'Turn shuffle on',
+      hint: 'S',
+      run: player.changeShuffle,
+    },
+    {
+      id: 'repeat',
+      group: 'Playback',
+      label: `Repeat: ${player.repeat} → ${player.repeat === 'off' ? 'all' : player.repeat === 'all' ? 'one' : 'off'}`,
+      hint: 'R',
+      run: player.changeRepeat,
+    },
+    {
+      id: 'radio',
+      group: 'Playback',
+      label: player.radio
+        ? 'Stop endless radio'
+        : 'Start endless radio from this song',
+      keywords: 'mix autoplay station',
+      run: () => (player.radio ? player.changeRadio() : startRadio()),
+    },
+    ...[15, 30, 45, 60].map((minutes) => ({
+      id: `sleep-${minutes}`,
+      group: 'Sleep timer',
+      label: `Sleep in ${minutes} minutes`,
+      keywords: 'timer bedtime pause later',
+      run: () => {
+        player.sleep(minutes);
+        setMessage({
+          text: `Playback pauses in ${minutes} minutes.`,
+          error: false,
+        });
+      },
+    })),
+    {
+      id: 'sleep-off',
+      group: 'Sleep timer',
+      label: 'Cancel sleep timer',
+      run: () => {
+        player.sleep();
+        setMessage({ text: 'Sleep timer cancelled.', error: false });
+      },
+    },
+    ...(
+      [
+        ['home', 'Home'],
+        ['songs', 'Explore'],
+        ['library', 'Saved songs'],
+        ['playlists', 'Playlists'],
+        ['listening', 'Listening stats'],
+        ['settings', 'Settings'],
+      ] as [View, string][]
+    ).map(([target, label]) => ({
+      id: `go-${target}`,
+      group: 'Go to',
+      label,
+      keywords: 'navigate open view',
+      run: () => navigate(target),
+    })),
+    {
+      id: 'lyrics',
+      group: 'Panels',
+      label: 'Show lyrics',
+      hint: 'L',
+      run: () => setPanel('lyrics'),
+    },
+    {
+      id: 'queue',
+      group: 'Panels',
+      label: 'Show queue',
+      hint: 'Q',
+      run: () => setPanel('queue'),
+    },
+    ...THEMES.map((theme) => ({
+      id: `theme-${theme}`,
+      group: 'Appearance',
+      label: `Theme: ${theme}`,
+      keywords: 'colour color dark look',
+      run: () => void saveSettings({ ...settings, theme }),
+    })),
+    {
+      id: 'backup',
+      group: 'Library',
+      label: 'Export a backup file',
+      keywords: 'download save export json',
+      run: exportBackup,
+    },
+    ...library.playlists.slice(0, 20).map((item) => ({
+      id: `playlist-${item.id}`,
+      group: 'Playlists',
+      label: `Open “${item.name}”`,
+      keywords: 'playlist open',
+      run: () => openPlaylist(item),
+    })),
+    ...moods.map((mood) => ({
+      id: `mood-${mood.title}`,
+      group: 'Discover',
+      label: mood.title,
+      keywords: mood.query,
+      run: () => search(mood.query),
+    })),
+  ];
+
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        !!target &&
+        (target.isContentEditable ||
+          ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
+      const keys: Record<string, () => void> = {
+        ' ': () => void player.toggle(),
+        arrowright: () => void player.seek(player.position + 10),
+        arrowleft: () => void player.seek(player.position - 10),
+        arrowup: () => player.changeVolume(Math.min(1, player.volume + 0.05)),
+        arrowdown: () =>
+          player.changeVolume(Math.max(0, player.volume - 0.05)),
+        n: () => void player.skip(1),
+        p: () => void player.skip(-1),
+        s: player.changeShuffle,
+        r: player.changeRepeat,
+        l: () => setPanel(panel === 'lyrics' ? '' : 'lyrics'),
+        q: () => setPanel(panel === 'queue' ? '' : 'queue'),
+        m: () =>
+          player.changeVolume(player.volume === 0 ? 0.7 : 0),
+        '/': () =>
+          document
+            .querySelector<HTMLInputElement>('[aria-label="Search music"]')
+            ?.focus(),
+        escape: () => setPanel(''),
+      };
+      const handler = keys[event.key.toLowerCase()];
+      if (!handler) return;
+      if (event.key === '/' || event.key === ' ') event.preventDefault();
+      if (event.key.startsWith('Arrow')) event.preventDefault();
+      handler();
+    };
+    window.addEventListener('keydown', shortcut);
+    return () => window.removeEventListener('keydown', shortcut);
+  }, [player, panel]);
 
   const renderTrackList = (list: Track[], compact = false) => (
     <div className={`track-list ${compact ? 'compact' : ''}`}>
@@ -380,6 +685,14 @@ export function App() {
             </button>
             <button
               className="icon-button"
+              aria-label={`Start radio from ${track.title}`}
+              disabled={busy || !settings.radioEnabled}
+              onClick={() => startRadio(track)}
+            >
+              <RadioTower size={17} />
+            </button>
+            <button
+              className="icon-button"
               aria-label={`Add ${track.title} to playlist`}
               onClick={() => newPlaylist(track)}
             >
@@ -435,6 +748,13 @@ export function App() {
           >
             <ListMusic />
             Playlists
+          </button>
+          <button
+            className={view === 'listening' ? 'nav-active' : ''}
+            onClick={() => navigate('listening')}
+          >
+            <BarChart3 />
+            Listening
           </button>
         </nav>
         <div className="sidebar-playlists">
@@ -515,6 +835,15 @@ export function App() {
               : 'Connecting to your server'}
           </div>
           <button
+            className="palette-shortcut"
+            aria-label="Open command palette"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <CommandIcon size={18} />
+            <span>Commands</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+          <button
             className="settings-shortcut"
             aria-label="Open settings"
             aria-current={view === 'settings' ? 'page' : undefined}
@@ -577,8 +906,26 @@ export function App() {
               settings={settings}
               health={health}
               busy={busy}
+              audioEngineReady={player.engineReady}
               save={saveSettings}
               refresh={refreshHealth}
+              exportBackup={exportBackup}
+              importBackup={importBackup}
+            />
+          ) : view === 'listening' ? (
+            <StatsPanel
+              stats={stats}
+              tracks={library.tracks}
+              busy={busy}
+              play={(id) => {
+                const track = library.tracks.find((item) => item.id === id);
+                if (track) void player.play([track]);
+              }}
+              clear={() =>
+                void action(async () => {
+                  setStats(await api<Stats>('/api/history', 'DELETE'));
+                }, 'Listening history cleared.')
+              }
             />
           ) : (
             <>
@@ -993,7 +1340,7 @@ export function App() {
               <X size={20} />
             </button>
           </div>
-          <PlaybackOptions player={player} />
+          <PlaybackOptions player={player} startRadio={() => startRadio()} />
           {panel === 'lyrics' ? (
             <LyricsPanel
               key={player.current?.id}
@@ -1180,6 +1527,12 @@ export function App() {
             </form>
           </section>
         </div>
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          commands={commands}
+          close={() => setPaletteOpen(false)}
+        />
       )}
     </div>
   );

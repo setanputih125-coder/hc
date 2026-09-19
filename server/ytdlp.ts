@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { CatalogPage, Health, Settings, Track } from '../shared/types.js';
+import { mixSeed } from '../shared/youtube.js';
 
 export class ServiceError extends Error {
   constructor(
@@ -44,6 +45,7 @@ export interface MusicService {
   health(): Promise<Health>;
   search(query: string, page: number): Promise<CatalogPage>;
   playlist(id: string, page: number): Promise<CatalogPage>;
+  radio(id: string): Promise<CatalogPage>;
   track(id: string): Promise<Track>;
   audio(
     id: string,
@@ -54,6 +56,30 @@ export interface MusicService {
 
 export function validVideo(id: string) {
   return /^[\w-]{11}$/.test(id);
+}
+
+/**
+ * YouTube challenges servers whose address it does not trust, and no player client or
+ * proof-of-origin token clears that on its own. A cookies file exported from a signed-in
+ * browser is the documented remedy, so it stays opt-in through MUSIC_COOKIES and is only
+ * used when the file really exists and is readable.
+ */
+export function cookiesFile(): string | undefined {
+  const path = process.env.MUSIC_COOKIES?.trim();
+  if (!path) return undefined;
+  try {
+    return statSync(path).isFile() ? resolve(path) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Proof-of-origin tokens are supplied by a yt-dlp plugin, which requires the plugin
+ * directories this server otherwise disables. Enabling it stays a deliberate choice.
+ */
+export function potEnabled() {
+  return process.env.MUSIC_ATTESTATION === '1';
 }
 export function mediaUrl(value: string): URL {
   const url = new URL(value);
@@ -114,7 +140,9 @@ export function extractorError(stderr: string): ServiceError {
     );
   if (/sign in|not a bot|login required|confirm your age|cookies/i.test(stderr))
     return new ServiceError(
-      'YouTube requires verification or login from this server. This client does not import cookies or bypass account restrictions. Try a public video from another network.',
+      cookiesFile()
+        ? 'YouTube rejected this server’s saved sign-in. Export a fresh cookies file from a private browsing window, or wait before retrying.'
+        : 'YouTube is asking this server to verify itself, which usually means its network address is flagged. Set MUSIC_COOKIES to a cookies file exported from a signed-in browser, or run Undertone from a home connection. See the “YouTube asks for verification” section of the README.',
       503,
     );
   if (/requested format|no video formats|only images/i.test(stderr))
@@ -243,11 +271,16 @@ export class YtDlp implements MusicService {
   }
 
   private async extract(target: string, args: string[]): Promise<Extracted> {
+    const cookies = cookiesFile();
+    const pot = potEnabled();
     const raw = await this.run([
       '--ignore-config',
-      '--no-plugin-dirs',
+      // Plugin directories stay disabled unless a proof-of-origin provider is wanted.
+      ...(pot ? [] : ['--no-plugin-dirs']),
       '--no-remote-components',
       '--no-cache-dir',
+      ...(cookies ? ['--cookies', cookies] : []),
+      ...(pot ? ['--extractor-args', 'youtube:player_client=default,mweb'] : []),
       '--js-runtimes',
       `node:${process.execPath}`,
       '--socket-timeout',
@@ -289,16 +322,21 @@ export class YtDlp implements MusicService {
     return this.cached(
       'health',
       async () => {
+        const aids = {
+          cookies: !!cookiesFile(),
+          proofOfOrigin: potEnabled(),
+        };
         try {
           const version = (
             await this.run(['--ignore-config', '--version'])
           ).trim();
-          return { available: true, engine: 'yt-dlp' as const, version };
+          return { available: true, engine: 'yt-dlp' as const, version, ...aids };
         } catch (error) {
           return {
             available: false,
             engine: 'yt-dlp' as const,
             message: (error as Error).message,
+            ...aids,
           };
         }
       },
@@ -348,9 +386,13 @@ export class YtDlp implements MusicService {
     )
       throw new ServiceError('Invalid YouTube playlist or page.', 400);
     return this.cached(`playlist:${id}:${page}`, async () => {
+      const seed = mixSeed(id);
       const info = await this.extract(
-        `https://www.youtube.com/playlist?list=${id}`,
+        seed
+          ? `https://www.youtube.com/watch?v=${seed}&list=${id}`
+          : `https://www.youtube.com/playlist?list=${id}`,
         [
+          ...(seed ? ['--yes-playlist'] : []),
           '--flat-playlist',
           '--playlist-start',
           String(page * 20 + 1),
@@ -369,6 +411,33 @@ export class YtDlp implements MusicService {
           info.entries?.length === 20 && page < 49 ? page + 1 : undefined,
       };
     });
+  }
+
+  /** YouTube builds an endless mix under the RD<videoId> list, which keeps radio server-side. */
+  async radio(id: string): Promise<CatalogPage> {
+    if (!validVideo(id))
+      throw new ServiceError('Invalid YouTube video ID.', 400);
+    return this.cached(
+      `radio:${id}`,
+      async () => {
+        const info = await this.extract(
+          `https://www.youtube.com/watch?v=${id}&list=RD${id}`,
+          ['--flat-playlist', '--playlist-end', '25'],
+        );
+        const tracks = (info.entries ?? [])
+          .filter((entry): entry is Extracted => !!entry)
+          .map((entry) => this.remember(entry))
+          .filter((track): track is Track => !!track)
+          .filter((track) => track.id !== id);
+        if (!tracks.length)
+          throw new ServiceError(
+            'YouTube did not return a radio mix for this track. Try another song.',
+            404,
+          );
+        return { tracks, title: info.title || 'Radio mix' };
+      },
+      600_000,
+    );
   }
 
   async track(id: string) {

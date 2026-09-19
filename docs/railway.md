@@ -17,21 +17,24 @@ This path works from a browser, including a phone.
    | `HOST` | `0.0.0.0` |
    | `PORT` | `3000` |
    | `DATA_DIR` | `/data` |
+   | `TRUST_PROXY` | `1` |
    | `APP_PASSWORD` | Your unique password, at least 24 characters recommended |
    | `PUBLIC_ORIGIN` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
 
 5. Set **Healthcheck Path** to **`/healthz`**, timeout **60 seconds**, and restart policy **On Failure** with **3 retries**. Leave the build and start commands empty: the Dockerfile supplies both. Disable serverless sleeping for uninterrupted listening.
-6. Connect the GitHub repository **`setanputih152-afk/hc`**, select branch **`hoplite/halikarnassos-8912bac6`**, and keep the root directory at `/`. Grant Railway access to that repository when prompted. Deploy the service.
+6. Connect the GitHub repository **`setanputih125-coder/hc`**, select branch **`hoplite/halikarnassos-8912bac6`**, and keep the root directory at `/`. Grant Railway access to that repository when prompted. Deploy the service.
 7. Open the generated HTTPS domain and log in using `APP_PASSWORD`. Check `/healthz` for HTTP 200, then test searching, playback, seeking, and lyrics from your deployment.
 
 For a custom domain, set `PUBLIC_ORIGIN` to its exact HTTPS origin and redeploy. Only the configured origin is accepted for application requests. The public healthcheck exposes only `{ "status": "ok" }`, not playback metadata or credentials.
+
+`TRUST_PROXY=1` tells Undertone that exactly one reverse proxy — Railway's edge — sits in front of it, so the login rate limit counts each client separately and session cookies are marked `Secure`. Do not set it when the server is reachable directly.
 
 ## Infrastructure as Code template
 
 Use this path on a machine with Node.js 22.12+ and npm, such as Linux, macOS, or WSL. The template creates the service, attaches a 1 GiB volume in `us-west2`, selects this repository's published branch, and configures the environment and healthcheck.
 
 ```sh
-git clone --branch hoplite/halikarnassos-8912bac6 https://github.com/setanputih152-afk/hc.git undertone
+git clone --branch hoplite/halikarnassos-8912bac6 https://github.com/setanputih125-coder/hc.git undertone
 cd undertone
 npm ci
 npm install -g @railway/cli@5.57.7
@@ -58,7 +61,7 @@ The CLI login, resource creation, and deployment happen in your Railway account 
 2. Set the source repository to:
 
    ```text
-   https://github.com/setanputih152-afk/hc/tree/hoplite/halikarnassos-8912bac6
+   https://github.com/setanputih125-coder/hc/tree/hoplite/halikarnassos-8912bac6
    ```
 
 3. Include the `/data` volume, public HTTP networking on port 3000, Dockerfile build, one replica, `/healthz` healthcheck, and variables from the dashboard table.

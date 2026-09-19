@@ -6,7 +6,7 @@ export default defineRailway((ctx) => {
     sizeMB: 1024,
   });
   const app = service('undertone', {
-    source: github('setanputih152-afk/hc', {
+    source: github('setanputih125-coder/hc', {
       branch: 'hoplite/halikarnassos-8912bac6',
     }),
     build: { builder: 'DOCKERFILE', dockerfilePath: 'Dockerfile' },
@@ -24,6 +24,7 @@ export default defineRailway((ctx) => {
       HOST: '0.0.0.0',
       PORT: '3000',
       DATA_DIR: '/data',
+      TRUST_PROXY: '1',
       APP_PASSWORD: ctx.shared.APP_PASSWORD,
       PUBLIC_ORIGIN: 'https://${{RAILWAY_PUBLIC_DOMAIN}}',
     },

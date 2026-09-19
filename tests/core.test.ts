@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseRange } from '../server/range.js';
 import { activeLyric, parseLyrics } from '../shared/lyrics.js';
 import { nextInQueue, queueOrder } from '../shared/queue.js';
-import { youtubeLink } from '../shared/youtube.js';
+import { mixSeed, youtubeLink } from '../shared/youtube.js';
 import { extractorError, mediaUrl, normalizeTrack } from '../server/ytdlp.js';
 import { exactLyrics } from '../server/lyrics.js';
 
@@ -79,6 +79,36 @@ test('only official YouTube URL shapes and video IDs enter the extractor', () =>
     assert.equal(youtubeLink(value), undefined);
 });
 
+test('generated mixes are recognized by their seed while ordinary playlists are not', () => {
+  const link = youtubeLink(
+    'https://youtube.com/playlist?list=RDabcdefghijk&playnext=1',
+  );
+  assert.equal(link?.playlistId, 'RDabcdefghijk');
+  assert.equal(link?.videoId, undefined);
+  assert.equal(
+    youtubeLink('https://www.youtube.com/watch?v=abcdefghijk&list=RDabcdefghijk')
+      ?.playlistId,
+    'RDabcdefghijk',
+    'a watch link inside a mix still carries the list',
+  );
+  // Every mix flavour YouTube serves resolves back to the seed video it was built from.
+  for (const list of [
+    'RDabcdefghijk',
+    'RDMMabcdefghijk',
+    'RDAMVMabcdefghijk',
+    'RDEMabcdefghijk',
+  ])
+    assert.equal(mixSeed(list), 'abcdefghijk', list);
+  // Curated RD lists and ordinary playlists are viewable directly and must not be rewritten.
+  for (const list of [
+    'RDCLAK5uy_kLWIr9gv1XLlPbaDS965-Db4TrBoUTxQ8',
+    'PLabcdefghijk',
+    'RDtooshort',
+    'RD',
+  ])
+    assert.equal(mixSeed(list), undefined, list);
+});
+
 test('metadata prefers structured music tags and treats title-splitting only as a lyrics hint', () => {
   const track = normalizeTrack({
     id: 'abcdefghijk',
@@ -129,7 +159,7 @@ test('stream URLs cannot turn the proxy into an arbitrary host or local-network 
     assert.throws(() => mediaUrl(url));
   assert.match(
     extractorError('Sign in to confirm you are not a bot').message,
-    /requires verification/,
+    /verify itself/,
   );
   assert.match(
     extractorError('Requested format is not available').message,

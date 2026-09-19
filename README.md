@@ -6,8 +6,14 @@ A self-hosted music player for YouTube, powered by **yt-dlp** with lyrics from *
 
 - Search music and open YouTube video or playlist links.
 - Stream audio with seeking, volume control, shuffle, and repeat.
+- Keep listening with **endless radio** built from the YouTube mix of any song.
+- Shape the sound with a **10-band equalizer**, volume normalization, crossfade, and playback speed.
 - Organize favorites, playlists, and the playback queue.
 - Follow timed lyrics, choose a recording, and save timing corrections.
+- See what you actually play in **Listening**: top tracks, artists, and time listened.
+- Reach everything from the **command palette** (`Ctrl`/`Cmd` + `K`) and keyboard shortcuts.
+- Pick a theme, set a sleep timer, and resume where you left off after a reload.
+- Install it to a phone home screen and back up your collection to a single file.
 - Listen through a responsive interface with browser media controls.
 
 ## Installation
@@ -20,7 +26,7 @@ Run these commands inside Termux:
 pkg update -y
 pkg install -y git
 cd "$HOME"
-git clone https://github.com/setanputih152-afk/hc.git
+git clone https://github.com/setanputih125-coder/hc.git
 cd hc
 bash scripts/termux-setup.sh
 npm start
@@ -30,12 +36,14 @@ Open **http://127.0.0.1:3000** in your browser. Keep the project in Termux's hom
 
 For longer listening sessions, run `termux-wake-lock` and keep Termux active. Release the lock with `termux-wake-unlock` when finished. Android battery settings can affect background playback.
 
+Add Undertone to your Android home screen from your browser's menu to open it without browser chrome. The installed shell caches only the interface; music, lyrics, and your collection always come from your running server.
+
 ### Linux / macOS
 
 Requirements: **Node.js 22.12+**, **Python 3.10+** with `venv`, and **pip**.
 
 ```sh
-git clone https://github.com/setanputih152-afk/hc.git
+git clone https://github.com/setanputih125-coder/hc.git
 cd hc
 bash scripts/setup.sh
 npm start
@@ -47,7 +55,76 @@ Open **http://127.0.0.1:3000**. Setup installs the pinned Python packages in `.v
 
 Search for a song or paste a YouTube link, then select a track. Use the heart to save a favorite and the playlist button to organize your collection.
 
+Paste any YouTube list link and Undertone opens it and starts playing: ordinary playlists, and the generated mixes whose links look like `youtube.com/playlist?list=RD…`. A `watch?v=…&list=…` link opens the list and starts at that song. YouTube serves mixes only from the watch URL, so Undertone requests them that way.
+
 **Settings → Audio format** offers Best available audio and M4A / AAC. Choose M4A if your browser has trouble playing WebM / Opus. Changes apply when a track is loaded.
+
+### Radio
+
+The radio tower button beside a track, in the player panel, or in the command palette starts an endless mix. Undertone asks YouTube for the mix that follows a song and appends new tracks to your queue as you approach the end. Turn it off in **Settings → Radio & history**.
+
+### Sound shaping
+
+**Settings → Sound shaping** adds a 10-band equalizer with presets, a preamp, and optional volume normalization. Both use the browser's Web Audio graph: nothing is re-encoded and the upstream stream is untouched. If a browser does not expose Web Audio, the controls are disabled and playback continues unchanged.
+
+Crossfade and playback speed live in **Settings → Audio streaming**. Crossfade overlaps the end of one song with the start of the next using a second audio element, so each track is still streamed on demand.
+
+### Listening statistics
+
+**Listening** shows your top tracks, artists, time listened, and recent plays. A play is counted after 20 seconds and stored only in your server's data directory. Turn history off or clear it from that view.
+
+### Keyboard and the command palette
+
+Press <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>K</kbd> for the command palette: playback, sleep timers, themes, views, playlists, and backups. Other shortcuts, active when you are not typing:
+
+| Key | Action |
+| --- | --- |
+| <kbd>Space</kbd> | Play or pause |
+| <kbd>←</kbd> / <kbd>→</kbd> | Seek 10 seconds |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | Volume |
+| <kbd>N</kbd> / <kbd>P</kbd> | Next / previous track |
+| <kbd>S</kbd> / <kbd>R</kbd> | Shuffle / repeat |
+| <kbd>L</kbd> / <kbd>Q</kbd> | Lyrics / queue panel |
+| <kbd>M</kbd> | Mute |
+| <kbd>/</kbd> | Focus search |
+
+### Backup and restore
+
+**Settings → Backup & restore** exports saved songs, playlists, and preferences as one JSON file and restores it on another machine. Restoring replaces the current collection; listening history is not included.
+
+## YouTube asks for verification
+
+If playback fails with a message about verifying this server, YouTube does not trust the network address the request came from. Home and mobile connections are rarely challenged; datacenter and VPS addresses often are, and the block can apply to some videos while others still play. Neither option below is a bypass — they make a legitimate request look like what it is.
+
+**Settings → Audio streaming** shows which of the two is active.
+
+### Proof-of-origin tokens (no account, try this first)
+
+A yt-dlp plugin attests that requests come from a genuine client. It needs only Node.js, which Undertone already requires:
+
+```sh
+bash scripts/setup-pot.sh
+```
+
+Then add `MUSIC_ATTESTATION=1` to `.env` and restart. Tokens are generated on demand, so nothing extra has to keep running. This clears format and streaming restrictions; it does not help when YouTube has flagged the address itself.
+
+### A cookies file (uses an account)
+
+Export cookies from a browser that is signed in to YouTube and point `MUSIC_COOKIES` at the file:
+
+```sh
+MUSIC_COOKIES=/home/you/cookies.txt
+```
+
+Export them the way yt-dlp documents, or the session stops working within a day:
+
+1. Open a **private/incognito** window and sign in to YouTube. Use a spare account — an account used this way can be restricted.
+2. In that same tab, go to `https://www.youtube.com/robots.txt`.
+3. Export `youtube.com` cookies in Netscape format with a cookies.txt browser extension, then close the window and never reopen that session.
+
+Keep the file outside the repository, readable only by you (`chmod 600`), and out of backups. Undertone passes the path to yt-dlp and never reads, logs, or copies its contents. Cookies are the only option for age-restricted videos.
+
+Neither setting is required on a home connection, and keeping request volume modest matters more than either.
 
 ### Lyrics
 
@@ -87,8 +164,13 @@ cp .env.example .env
 | `PYTHON_BIN` | `.venv/bin/python`, then `python3` | Python executable |
 | `APP_PASSWORD` | Unset | Server password |
 | `PUBLIC_ORIGIN` | Unset | Permitted browser origin for LAN or proxy access |
+| `TRUST_PROXY` | Unset | Trusted proxy hops, such as `1` behind one reverse proxy |
+| `MUSIC_COOKIES` | Unset | Path to a cookies file used when YouTube asks the server to verify itself |
+| `MUSIC_ATTESTATION` | Unset | Set to `1` to attach proof-of-origin tokens after running `scripts/setup-pot.sh` |
 
 For LAN access, set `HOST=0.0.0.0`, a strong `APP_PASSWORD`, and `PUBLIC_ORIGIN` to the address you open in your browser, such as `http://192.168.1.50:3000`. Both password and origin are required when binding beyond loopback. Use HTTPS for remote access.
+
+Set `TRUST_PROXY` only when a reverse proxy you control sits in front of Undertone. It makes the login rate limit count each client separately and marks session cookies `Secure` on forwarded HTTPS requests. Leave it unset for direct connections, where forwarded headers cannot be trusted.
 
 ## Development
 
@@ -108,8 +190,8 @@ npm run build
 | --- | --- |
 | `src/` | React interface and audio player |
 | `server/` | Express API, yt-dlp integration, streaming, and LRCLIB client |
-| `shared/` | Types, queue ordering, and lyric timing utilities |
-| `tests/` | Provider, streaming, persistence, and timing tests |
+| `shared/` | Types, settings, statistics, queue ordering, and lyric timing utilities |
+| `tests/` | Provider, streaming, persistence, timing, and feature tests |
 | `scripts/` | Setup, development, build, and test commands |
 
 ## Compatibility

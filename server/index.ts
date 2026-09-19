@@ -28,11 +28,18 @@ if (
   ))
     origins.push(`https://${name.trim()}`);
 }
+const trustProxy = process.env.TRUST_PROXY?.trim();
 const { app } = await createApp({
   dataDir: process.env.DATA_DIR || './data',
   password: process.env.APP_PASSWORD,
   origins,
   clientDir: resolve('dist/client'),
+  // Railway and reverse proxies terminate TLS; without this every client shares one rate-limit bucket.
+  trustProxy: !trustProxy
+    ? false
+    : /^\d+$/.test(trustProxy)
+      ? Number(trustProxy)
+      : trustProxy,
 });
 const server = app.listen(port, host, () =>
   console.log(`Undertone is listening at http://${host}:${port}`),

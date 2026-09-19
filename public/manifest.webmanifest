@@ -1,0 +1,26 @@
+{
+  "name": "Undertone — Your listening room",
+  "short_name": "Undertone",
+  "description": "A self-hosted music player for YouTube with synced lyrics from LRCLIB.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111211",
+  "theme_color": "#111211",
+  "categories": ["music", "entertainment"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

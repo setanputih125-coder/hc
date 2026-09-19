@@ -16,7 +16,7 @@ test('Railway template defines one protected service with persistent storage', a
   const service = resources.find((resource) => resource.type === 'service');
   const volume = resources.find((resource) => resource.type === 'volume');
   assert.ok(service && volume);
-  assert.equal(service.source?.repo, 'setanputih152-afk/hc');
+  assert.equal(service.source?.repo, 'setanputih125-coder/hc');
   assert.equal(service.source?.branch, 'hoplite/halikarnassos-8912bac6');
   assert.equal(service.build?.builder, 'DOCKERFILE');
   assert.equal(service.build?.dockerfilePath, 'Dockerfile');
@@ -32,6 +32,7 @@ test('Railway template defines one protected service with persistent storage', a
     HOST: '0.0.0.0',
     PORT: '3000',
     DATA_DIR: '/data',
+    TRUST_PROXY: '1',
     PUBLIC_ORIGIN: 'https://${{RAILWAY_PUBLIC_DOMAIN}}',
   }))
     assert.deepEqual(service.variables?.[name], { type: 'literal', value });
@@ -47,6 +48,7 @@ test('container configuration excludes local secrets and includes both runtimes'
   const ignore = (await readFile('.dockerignore', 'utf8')).split('\n');
   for (const entry of [
     '.git', '.env', '.env.*', '.hoplite', '.venv', 'data', 'node_modules', 'dist',
+    'cookies.txt', '*.cookies.txt',
   ])
     assert.ok(ignore.includes(entry), entry);
   const dockerfile = await readFile('Dockerfile', 'utf8');
@@ -75,4 +77,29 @@ test('app-owned UI copy and service errors do not expose extractor branding', as
   assert.doesNotMatch(app, /engine-chip|youtube-mark|track-format/);
   for (const stderr of ['No module named yt_dlp', 'yt-dlp unexpected failure'])
     assert.doesNotMatch(extractorError(stderr).message, forbidden);
+});
+
+test('the installable app shell keeps API traffic online and out of the cache', async () => {
+  const manifest = JSON.parse(
+    await readFile('public/manifest.webmanifest', 'utf8'),
+  );
+  assert.equal(manifest.start_url, '/');
+  assert.equal(manifest.display, 'standalone');
+  assert.ok(
+    manifest.icons.some(
+      (icon: { purpose?: string }) => icon.purpose === 'maskable',
+    ),
+    'Android home-screen icons need a maskable variant',
+  );
+  const html = await readFile('index.html', 'utf8');
+  assert.match(html, /rel="manifest"/);
+  const worker = await readFile('public/service-worker.js', 'utf8');
+  assert.match(worker, /pathname\.startsWith\('\/api\/'\)/);
+  assert.match(worker, /request\.method !== 'GET'/);
+  assert.doesNotMatch(worker, /googlevideo/);
+  assert.match(
+    await readFile('src/main.tsx', 'utf8'),
+    /import\.meta\.env\.PROD/,
+    'the worker must not hijack the development server',
+  );
 });

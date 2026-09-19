@@ -31,3 +31,13 @@ export function youtubeLink(
     return undefined;
   }
 }
+/**
+ * YouTube refuses `/playlist?list=RD…` for generated mixes ("unviewable") but serves the
+ * same list from `/watch?v=<seed>&list=…`. The seed video ID is the list ID minus its
+ * RD prefix, so a mix can be recognized without an extra request. Curated RD lists such
+ * as `RDCLAK5…` are ordinary playlists and deliberately do not match.
+ */
+export function mixSeed(listId: string): string | undefined {
+  const match = /^RD(?:MM|AMVM|EM|GM|CM|QM)?([\w-]{11})$/.exec(listId);
+  return match?.[1];
+}
