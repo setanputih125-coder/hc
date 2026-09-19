@@ -1,30 +1,51 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlignLeft,
+  AudioLines,
   Check,
+  Download,
   ExternalLink,
   LoaderCircle,
+  Palette,
   Radio,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
+  Timer,
+  Upload,
 } from 'lucide-react';
-import type { Health, Settings } from '../../shared/types';
+import type { Health, Settings, Theme } from '../../shared/types';
+import { MAX_CROSSFADE, PLAYBACK_RATES, THEMES } from '../../shared/settings';
+import { EqualizerPanel } from './Equalizer';
+
+const themeNames: Record<Theme, string> = {
+  undertone: 'Undertone · moss green',
+  noir: 'Noir · monochrome',
+  ember: 'Ember · warm amber',
+  tide: 'Tide · deep blue',
+};
 
 export function SettingsPanel({
   settings,
   health,
   busy,
+  audioEngineReady,
   save,
   refresh,
+  exportBackup,
+  importBackup,
 }: {
   settings: Settings;
   health?: Health;
   busy: boolean;
+  audioEngineReady: boolean;
   save: (settings: Settings) => Promise<void>;
   refresh: () => void;
+  exportBackup: () => void;
+  importBackup: (file: File) => void;
 }) {
   const [draft, setDraft] = useState(settings);
+  const fileRef = useRef<HTMLInputElement>(null);
   useEffect(() => setDraft(settings), [settings]);
   return (
     <>
@@ -99,6 +120,50 @@ export function SettingsPanel({
             “best” does not mean lossless or the original recording. No
             additional transcoding is performed.
           </p>
+          <label>
+            Playback speed
+            <select
+              value={draft.playbackRate}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  playbackRate: Number(event.target.value),
+                })
+              }
+            >
+              {PLAYBACK_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate}× {rate === 1 ? '· original tempo' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Crossfade between songs
+            <input
+              type="range"
+              min={0}
+              max={MAX_CROSSFADE}
+              step={1}
+              value={draft.crossfadeSeconds}
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  crossfadeSeconds: Number(event.target.value),
+                })
+              }
+            />
+            <span className="field-value">
+              {draft.crossfadeSeconds
+                ? `${draft.crossfadeSeconds} second${draft.crossfadeSeconds === 1 ? '' : 's'}`
+                : 'Off · gapless switch'}
+            </span>
+          </label>
+          <p className="field-help">
+            Crossfade overlaps the end of one song with the start of the next.
+            It uses a second audio element, so each track is still streamed on
+            demand.
+          </p>
           <div className="quality-note">
             <ShieldCheck size={20} />
             <div>
@@ -108,6 +173,102 @@ export function SettingsPanel({
                 seeking through the upstream audio stream.
               </p>
             </div>
+          </div>
+        </section>
+        <section className="settings-card">
+          <div className="section-heading">
+            <AudioLines />
+            <h2>Sound shaping</h2>
+            <span className="pill">WEB AUDIO</span>
+          </div>
+          <p>
+            Shape the sound in your browser. Nothing is re-encoded and the
+            original stream is untouched.
+          </p>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={draft.normalizeVolume}
+              disabled={!audioEngineReady}
+              onChange={(event) =>
+                setDraft({ ...draft, normalizeVolume: event.target.checked })
+              }
+            />
+            Even out loud and quiet songs
+          </label>
+          <EqualizerPanel
+            value={draft.equalizer}
+            supported={audioEngineReady}
+            onChange={(equalizer) => setDraft({ ...draft, equalizer })}
+          />
+        </section>
+        <section className="settings-card">
+          <div className="section-heading">
+            <Radio />
+            <h2>Radio & history</h2>
+          </div>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={draft.radioEnabled}
+              onChange={(event) =>
+                setDraft({ ...draft, radioEnabled: event.target.checked })
+              }
+            />
+            Allow endless radio from a song
+          </label>
+          <p className="field-help">
+            Radio asks YouTube for the mix that follows the last song in your
+            queue and appends it while you listen.
+          </p>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={draft.historyEnabled}
+              onChange={(event) =>
+                setDraft({ ...draft, historyEnabled: event.target.checked })
+              }
+            />
+            Keep listening history and statistics
+          </label>
+          <p className="field-help">
+            History is stored only in your server's data directory and powers
+            the Listening view. Turning it off stops new entries; clear existing
+            ones from that view.
+          </p>
+          <div className="notice">
+            <strong>
+              <Timer size={16} /> Sleep timer
+            </strong>
+            <p>
+              Set a sleep timer from the player panel or the command palette
+              with <kbd>Ctrl</kbd> + <kbd>K</kbd>.
+            </p>
+          </div>
+        </section>
+        <section className="settings-card">
+          <div className="section-heading">
+            <Palette />
+            <h2>Appearance</h2>
+          </div>
+          <p>Pick the room's lighting. The choice is saved on your server.</p>
+          <div className="theme-grid">
+            {THEMES.map((theme) => (
+              <button
+                type="button"
+                key={theme}
+                className={`theme-swatch ${theme} ${draft.theme === theme ? 'active' : ''}`}
+                aria-pressed={draft.theme === theme}
+                onClick={() => setDraft({ ...draft, theme })}
+              >
+                <span className="theme-dots">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                {themeNames[theme]}
+              </button>
+            ))}
           </div>
         </section>
         <section className="settings-card">
@@ -168,6 +329,51 @@ export function SettingsPanel({
           </button>
         </div>
       </form>
+      <section className="settings-card">
+        <div className="section-heading">
+          <Download />
+          <h2>Backup & restore</h2>
+        </div>
+        <p>
+          Export saved songs, playlists, and preferences as one JSON file, then
+          restore them on another machine — Termux, a laptop, or a deployment.
+        </p>
+        <div className="backup-actions">
+          <button
+            type="button"
+            className="outline-button"
+            onClick={exportBackup}
+            disabled={busy}
+          >
+            <Download size={16} />
+            Export backup
+          </button>
+          <button
+            type="button"
+            className="outline-button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy}
+          >
+            <Upload size={16} />
+            Restore from file
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) importBackup(file);
+            }}
+          />
+        </div>
+        <p className="field-help">
+          Restoring replaces the current saved songs, playlists, and
+          preferences. Listening history is not included in the file.
+        </p>
+      </section>
       <section className="settings-card privacy-note">
         <h2>Your server, connected.</h2>
         <p>

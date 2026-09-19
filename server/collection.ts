@@ -1,12 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { Library, Playlist, Settings, Track } from '../shared/types.js';
+import type {
+  Backup,
+  Library,
+  PlayEvent,
+  PlayerState,
+  Playlist,
+  Settings,
+  Stats,
+  Track,
+} from '../shared/types.js';
+import { defaultSettings, normalizeSettings } from '../shared/settings.js';
+import { HISTORY_LIMIT, summarize } from '../shared/stats.js';
 import { readJson, SerialWriter, writeJson } from './store.js';
 import { ServiceError } from './ytdlp.js';
 
 export class Collection {
   library: Library = { tracks: [], favorites: [], playlists: [] };
-  settings: Settings = { audioFormat: 'best', lyricsEnabled: true };
+  settings: Settings = defaultSettings();
+  history: PlayEvent[] = [];
+  player: PlayerState = {
+    queue: [],
+    index: 0,
+    position: 0,
+    volume: 0.7,
+    shuffle: false,
+    repeat: 'off',
+  };
   private writer = new SerialWriter();
   constructor(private dataDir: string) {}
   async init() {
@@ -18,9 +38,16 @@ export class Collection {
       join(this.dataDir, 'preferences.json'),
       this.settings,
     );
-    this.settings = {
-      audioFormat: saved.audioFormat === 'm4a' ? 'm4a' : 'best',
-      lyricsEnabled: saved.lyricsEnabled !== false,
+    this.settings = normalizeSettings(saved);
+    this.history = (
+      await readJson<PlayEvent[]>(join(this.dataDir, 'history.json'), [])
+    ).slice(-HISTORY_LIMIT);
+    this.player = {
+      ...this.player,
+      ...(await readJson<Partial<PlayerState>>(
+        join(this.dataDir, 'player.json'),
+        {},
+      )),
     };
   }
   saveSettings(settings: Settings) {
@@ -28,6 +55,67 @@ export class Collection {
       await writeJson(join(this.dataDir, 'preferences.json'), settings);
       this.settings = settings;
       return settings;
+    });
+  }
+  savePlayer(state: PlayerState) {
+    return this.writer.run(async () => {
+      const next = { ...state, updatedAt: new Date().toISOString() };
+      await writeJson(join(this.dataDir, 'player.json'), next);
+      this.player = next;
+      return next;
+    });
+  }
+  record(event: PlayEvent) {
+    return this.writer.run(async () => {
+      const next = [...this.history, event].slice(-HISTORY_LIMIT);
+      await writeJson(join(this.dataDir, 'history.json'), next);
+      this.history = next;
+      return next.length;
+    });
+  }
+  clearHistory() {
+    return this.writer.run(async () => {
+      await writeJson(join(this.dataDir, 'history.json'), []);
+      this.history = [];
+    });
+  }
+  stats(limit = 10): Stats {
+    return summarize(this.history, limit);
+  }
+  /** Track metadata for history entries is kept only for tracks still referenced by the library. */
+  export(): Backup {
+    return {
+      application: 'undertone',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      library: structuredClone(this.library),
+      settings: { ...this.settings },
+    };
+  }
+  import(backup: Backup) {
+    return this.writer.run(async () => {
+      const tracks = backup.library.tracks;
+      const known = new Set(tracks.map((track) => track.id));
+      const library: Library = {
+        tracks,
+        favorites: [...new Set(backup.library.favorites)].filter((id) =>
+          known.has(id),
+        ),
+        playlists: backup.library.playlists.slice(0, 100).map((playlist) => ({
+          id: playlist.id || randomUUID(),
+          name: playlist.name.slice(0, 100),
+          trackIds: playlist.trackIds
+            .filter((id) => known.has(id))
+            .slice(0, 1000),
+          createdAt: playlist.createdAt || new Date().toISOString(),
+        })),
+      };
+      const settings = normalizeSettings(backup.settings);
+      await writeJson(join(this.dataDir, 'online-library.json'), library);
+      await writeJson(join(this.dataDir, 'preferences.json'), settings);
+      this.library = library;
+      this.settings = settings;
+      return { library, settings };
     });
   }
   private change<T>(update: (library: Library) => T) {

@@ -60,6 +60,10 @@ async function fixture(password?: string) {
       tracks: [track, second],
       title: 'YouTube playlist',
     }),
+    radio: async (id) => ({
+      tracks: [{ ...second, id: 'radiotrack1' }],
+      title: `Radio mix for ${id}`,
+    }),
     track: async (id) => ({ ...(id === second.id ? second : track), id }),
     audio: async (id, _format, refresh = false) => {
       refreshes.push(refresh);

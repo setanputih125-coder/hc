@@ -2,7 +2,7 @@ import express, { type ErrorRequestHandler } from 'express';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { Collection } from './collection.js';
 import { LrcLib, type LyricsService } from './lyrics.js';
 import {
@@ -13,12 +13,16 @@ import {
   type MusicService,
 } from './ytdlp.js';
 import type { Settings } from '../shared/types.js';
+import { normalizeSettings } from '../shared/settings.js';
+import { MIN_PLAY_SECONDS } from '../shared/stats.js';
+import type { Backup, PlayerState, Track } from '../shared/types.js';
 
 export interface AppOptions {
   dataDir: string;
   password?: string;
   origins?: string[];
   clientDir?: string;
+  trustProxy?: boolean | number | string;
   music?: MusicService;
   lyrics?: LyricsService;
   fetcher?: typeof fetch;
@@ -42,6 +46,8 @@ export async function createApp(options: AppOptions) {
   const fetcher = options.fetcher ?? fetch;
   const app = express();
   app.disable('x-powered-by');
+  if (options.trustProxy !== undefined)
+    app.set('trust proxy', options.trustProxy);
   const sessions = new Map<string, number>();
   const attempts = new Map<string, { count: number; expires: number }>();
   const origins = new Set(
@@ -62,6 +68,8 @@ export async function createApp(options: AppOptions) {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy':
+        "default-src 'self'; img-src 'self' https://i.ytimg.com data:; media-src 'self' blob:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'self'; object-src 'none'",
     });
     if (!hosts.has(req.hostname)) {
       res
@@ -142,7 +150,7 @@ export async function createApp(options: AppOptions) {
       .cookie('undertone_session', token, {
         httpOnly: true,
         sameSite: 'strict',
-        secure: !!req.get('origin')?.startsWith('https:'),
+        secure: req.secure || !!req.get('origin')?.startsWith('https:'),
         maxAge: 86_400_000,
         path: '/',
       })
@@ -169,18 +177,12 @@ export async function createApp(options: AppOptions) {
   app.get('/api/health', async (_req, res) => res.json(await music.health()));
   app.get('/api/settings', (_req, res) => res.json(collection.settings));
   app.put('/api/settings', async (req, res) => {
-    if (
-      !['best', 'm4a'].includes(req.body?.audioFormat) ||
-      typeof req.body?.lyricsEnabled !== 'boolean'
-    )
+    if (!['best', 'm4a'].includes(req.body?.audioFormat))
       throw new ServiceError(
         'Choose best or m4a audio and an online lyrics preference.',
         400,
       );
-    const settings: Settings = {
-      audioFormat: req.body.audioFormat,
-      lyricsEnabled: req.body.lyricsEnabled,
-    };
+    const settings: Settings = normalizeSettings(req.body);
     res.json(await collection.saveSettings(settings));
   });
   app.get('/api/search', async (req, res) =>
@@ -194,6 +196,11 @@ export async function createApp(options: AppOptions) {
   app.get('/api/youtube/playlists/:id', async (req, res) =>
     res.json(await music.playlist(req.params.id, Number(req.query.page ?? 0))),
   );
+  app.get('/api/tracks/:id/radio', async (req, res) => {
+    if (!collection.settings.radioEnabled)
+      throw new ServiceError('Radio is turned off in Settings.', 403);
+    res.json(await music.radio(req.params.id));
+  });
   app.get('/api/tracks/:id', async (req, res) =>
     res.json(await music.track(req.params.id)),
   );
@@ -334,6 +341,87 @@ export async function createApp(options: AppOptions) {
     }
   });
   app.get('/api/library', (_req, res) => res.json(collection.library));
+  app.get('/api/player', (_req, res) => res.json(collection.player));
+  app.put('/api/player', async (req, res) => {
+    const body = req.body ?? {};
+    const queue: Track[] = Array.isArray(body.queue)
+      ? body.queue
+          .filter(
+            (track: Track) =>
+              track && validVideo(track.id) && typeof track.title === 'string',
+          )
+          .slice(0, 1000)
+      : [];
+    const state: PlayerState = {
+      queue,
+      index: Math.max(
+        0,
+        Math.min(queue.length - 1, Math.trunc(Number(body.index) || 0)),
+      ),
+      position: Math.max(0, Number(body.position) || 0),
+      volume: Math.max(0, Math.min(1, Number(body.volume ?? 0.7))),
+      shuffle: body.shuffle === true,
+      repeat: ['off', 'all', 'one'].includes(body.repeat) ? body.repeat : 'off',
+    };
+    res.json(await collection.savePlayer(state));
+  });
+  app.get('/api/stats', (req, res) => {
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10));
+    res.json(collection.stats(limit));
+  });
+  app.post('/api/history', async (req, res) => {
+    if (!collection.settings.historyEnabled)
+      throw new ServiceError('Listening history is turned off.', 403);
+    const seconds = Number(req.body?.seconds);
+    if (
+      typeof req.body?.trackId !== 'string' ||
+      !Number.isFinite(seconds) ||
+      seconds < MIN_PLAY_SECONDS
+    )
+      throw new ServiceError(
+        `Provide a track ID and at least ${MIN_PLAY_SECONDS} listened seconds.`,
+        400,
+      );
+    const track = await music.track(req.body.trackId);
+    await collection.record({
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      album: track.album,
+      artwork: track.artwork,
+      playedAt: new Date().toISOString(),
+      seconds: Math.min(Math.round(seconds), 24 * 3600),
+    });
+    res.json(collection.stats());
+  });
+  app.delete('/api/history', async (_req, res) => {
+    await collection.clearHistory();
+    res.json(collection.stats());
+  });
+  app.get('/api/backup', (_req, res) =>
+    res
+      .set(
+        'Content-Disposition',
+        `attachment; filename="undertone-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+      )
+      .json(collection.export()),
+  );
+  app.post('/api/backup', async (req, res) => {
+    const backup = req.body as Backup;
+    if (
+      backup?.application !== 'undertone' ||
+      backup.version !== 1 ||
+      !backup.library ||
+      !Array.isArray(backup.library.tracks) ||
+      !Array.isArray(backup.library.favorites) ||
+      !Array.isArray(backup.library.playlists) ||
+      backup.library.tracks.some(
+        (track) => !track || !validVideo(track.id ?? ''),
+      )
+    )
+      throw new ServiceError('This is not a valid Undertone backup file.', 400);
+    res.json(await collection.import(backup));
+  });
   app.post('/api/favorites', async (req, res) => {
     if (typeof req.body?.trackId !== 'string')
       throw new ServiceError('Provide a track ID.', 400);
@@ -421,9 +509,22 @@ export async function createApp(options: AppOptions) {
     res.status(404).json({ error: 'Unknown API endpoint.' }),
   );
   if (options.clientDir) {
-    app.use(express.static(options.clientDir));
+    app.use(
+      express.static(options.clientDir, {
+        setHeaders: (response, path) =>
+          response.set(
+            'Cache-Control',
+            // Vite emits content-hashed files under /assets, everything else must revalidate.
+            path.includes(`${sep}assets${sep}`)
+              ? 'public, max-age=31536000, immutable'
+              : 'no-cache',
+          ),
+      }),
+    );
     app.get('/{*path}', (_req, res) =>
-      res.sendFile(resolve(options.clientDir!, 'index.html')),
+      res
+        .set('Cache-Control', 'no-cache')
+        .sendFile(resolve(options.clientDir!, 'index.html')),
     );
   }
   const errors: ErrorRequestHandler = (error, _req, res, _next) => {

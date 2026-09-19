@@ -44,6 +44,7 @@ export interface MusicService {
   health(): Promise<Health>;
   search(query: string, page: number): Promise<CatalogPage>;
   playlist(id: string, page: number): Promise<CatalogPage>;
+  radio(id: string): Promise<CatalogPage>;
   track(id: string): Promise<Track>;
   audio(
     id: string,
@@ -369,6 +370,33 @@ export class YtDlp implements MusicService {
           info.entries?.length === 20 && page < 49 ? page + 1 : undefined,
       };
     });
+  }
+
+  /** YouTube builds an endless mix under the RD<videoId> list, which keeps radio server-side. */
+  async radio(id: string): Promise<CatalogPage> {
+    if (!validVideo(id))
+      throw new ServiceError('Invalid YouTube video ID.', 400);
+    return this.cached(
+      `radio:${id}`,
+      async () => {
+        const info = await this.extract(
+          `https://www.youtube.com/watch?v=${id}&list=RD${id}`,
+          ['--flat-playlist', '--playlist-end', '25'],
+        );
+        const tracks = (info.entries ?? [])
+          .filter((entry): entry is Extracted => !!entry)
+          .map((entry) => this.remember(entry))
+          .filter((track): track is Track => !!track)
+          .filter((track) => track.id !== id);
+        if (!tracks.length)
+          throw new ServiceError(
+            'YouTube did not return a radio mix for this track. Try another song.',
+            404,
+          );
+        return { tracks, title: info.title || 'Radio mix' };
+      },
+      600_000,
+    );
   }
 
   async track(id: string) {

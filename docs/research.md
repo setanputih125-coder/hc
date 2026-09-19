@@ -25,6 +25,13 @@ The older `get-cached` endpoint is not relied upon: it was absent from the curre
 ## Deliberate implementation choices, not upstream promises
 
 - Two concurrent extractors, 12 waiting operations, four concurrent streams, 20-result catalog pages, 200 search results, 1,000 playlist/queue entries, and three-minute metadata/stream caches are **application limits**.
+- Radio uses YouTube's own `RD<videoId>` mix list, capped at 25 flat entries per request with a ten-minute cache, and appends at most 12 unheard songs to a queue. YouTube decides what a mix contains; Undertone does not build recommendations.
+- The equalizer, preamp, and volume normalization are browser-side Web Audio nodes (ten biquad filters and a dynamics compressor). They never re-encode audio, are skipped entirely when a browser lacks Web Audio, and are not a claim of mastering-grade processing.
+- Crossfade overlaps two `HTMLAudioElement` instances; it is not gapless decoding and each track is still resolved and streamed separately.
+- Listening history counts a play after 20 seconds, keeps at most 2,000 events in `history.json`, and stays on the server. Statistics are computed from those events only.
+- Player state is written to `player.json` roughly every 15 seconds and when the page is hidden, so a reload resumes the queue and position. Stored queues are re-validated as YouTube IDs on read.
+- Backups carry saved songs, playlists, and preferences. They deliberately exclude listening history and are validated before replacing a collection.
+- The service worker caches the built interface only. API routes, audio, and artwork are never cached, and it is registered only in production builds.
 - Live, upcoming, private, and explicitly restricted entries are rejected when that metadata is available. Flat results can lack availability details; final resolution can still fail.
 - Audio stays in its upstream WebM/Opus or M4A/AAC representation. There is no transcoding, media-file cache, or FFmpeg requirement. HTTP range forwarding is not a guarantee that every future upstream format will remain seekable.
 - Only HTTPS Googlevideo subdomains are permitted for media URLs and redirects. This is a fail-closed containment choice; future CDN changes could require a reviewed update rather than silently allowing arbitrary URLs.
@@ -45,6 +52,9 @@ The older `get-cached` endpoint is not relied upon: it was absent from the curre
 - Real HTTP server behavior with simulated upstream bytes: exact range payloads, full requests, HEAD, suffix/open ranges, stale If-Range, multipart fallback, 416, and one refresh after an expired URL.
 - Redirect/host containment, session authentication, cross-site rejection, metadata-only resolve responses, atomic favorites/playlists, and no local-media endpoints.
 - LRCLIB client identity, sequential requests, caching, Retry-After, exact versus ambiguous matching, manual selection, missing/error states, instrumental/plain lyrics, and LRC seek/offset behavior.
+- Settings normalization against hostile input, listening statistics ranking, radio/history switches, player-state clamping, backup validation and round-trip, and collection durability across a restart.
+- A `Content-Security-Policy` without `unsafe-eval`, and proxy headers that only change rate-limit buckets or cookie `Secure` flags when `TRUST_PROXY` is configured.
+- Installable-shell boundaries: the service worker never caches API traffic and is not registered during development.
 
 All committed lyric fixtures are original test phrases. Automated provider tests do not require a real account or copy third-party songs into the repository.
 
@@ -58,6 +68,20 @@ All committed lyric fixtures are original test phrases. Automated provider tests
 - Real playback succeeded with both Best/WebM and M4A settings. Pause, shuffle/repeat toggles, queue reorder/removal, saved-song and playlist persistence after reload, and the online-lyrics-off state were checked through the running UI. Plain/instrumental and provider-error contracts remain automated checks rather than claims of live coverage for every state.
 - The 390-pixel home and lyrics views measured a 390-pixel document width, with no horizontal overflow. This is desktop Chrome viewport testing, not an Android-device test.
 - The development backend now uses `tsx watch server/index.ts` rather than compiled output. A clean production build completed while the development API stayed responsive. Managed Preview initially returned historical crash logs; a fresh process and subsequent HTTP/browser checks confirmed recovery.
+
+### Live checks for the 2.0 feature release
+
+Checked on 19 September 2026 against the running application in desktop Chrome:
+
+- Radio returned YouTube's real mix for a public video in about 1.5 seconds and produced contemporaries of the seed track rather than repeats.
+- Real playback of a live YouTube search result advanced through the audio proxy with the Web Audio graph and a Bass equalizer preset active.
+- Selecting a preset filled all ten bands, and saving wrote the full settings object — theme, equalizer, bands, and preset — to the server, confirmed by reading `/api/settings`.
+- Skipping a track after about a minute recorded one play of 67 seconds, and the Listening view rendered the resulting totals and rankings.
+- After a reload, the 20-song queue and a 0:48 position were restored from server-side player state.
+- At a 390-pixel viewport the document measured 390 pixels with no horizontal overflow, and the equalizer rendered as two rows of five bands inside its card.
+- Browser verification found three real defects, all fixed and re-verified: palette search that could not match multi-word labels, checkbox labels inheriting a column layout, and a `.equalizer` class name that collided with the existing track-row animation.
+
+Android device installation and background playback still need testing on physical hardware; the installable shell was verified as a manifest and service-worker contract, not on a device.
 - The checked-in setup command ran successfully in this Linux sandbox. The managed setup tool itself reported a lifecycle-claim block; the identical effective command was verified directly with `bash scripts/setup.sh` rather than claiming the blocked platform operation ran.
 
 ### Synchronization follow-up — 17 September 2026
