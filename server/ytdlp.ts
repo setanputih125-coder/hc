@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { CatalogPage, Health, Settings, Track } from '../shared/types.js';
+import { mixSeed } from '../shared/youtube.js';
 
 export class ServiceError extends Error {
   constructor(
@@ -349,9 +350,13 @@ export class YtDlp implements MusicService {
     )
       throw new ServiceError('Invalid YouTube playlist or page.', 400);
     return this.cached(`playlist:${id}:${page}`, async () => {
+      const seed = mixSeed(id);
       const info = await this.extract(
-        `https://www.youtube.com/playlist?list=${id}`,
+        seed
+          ? `https://www.youtube.com/watch?v=${seed}&list=${id}`
+          : `https://www.youtube.com/playlist?list=${id}`,
         [
+          ...(seed ? ['--yes-playlist'] : []),
           '--flat-playlist',
           '--playlist-start',
           String(page * 20 + 1),

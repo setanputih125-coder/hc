@@ -55,6 +55,8 @@ Open **http://127.0.0.1:3000**. Setup installs the pinned Python packages in `.v
 
 Search for a song or paste a YouTube link, then select a track. Use the heart to save a favorite and the playlist button to organize your collection.
 
+Paste any YouTube list link and Undertone opens it and starts playing: ordinary playlists, and the generated mixes whose links look like `youtube.com/playlist?list=RD…`. A `watch?v=…&list=…` link opens the list and starts at that song. YouTube serves mixes only from the watch URL, so Undertone requests them that way.
+
 **Settings → Audio format** offers Best available audio and M4A / AAC. Choose M4A if your browser has trouble playing WebM / Opus. Changes apply when a track is loaded.
 
 ### Radio

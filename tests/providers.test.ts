@@ -62,6 +62,29 @@ test('yt-dlp arguments, caching, metadata, headers and input restrictions', asyn
     },
   );
   await t.test(
+    'generated mixes are requested through their seed video, ordinary playlists directly',
+    async () => {
+      calls.length = 0;
+      const mix = await service.playlist('RDabcdefghijk', 1);
+      assert.equal(mix.tracks[0].id, entry.id);
+      // YouTube refuses /playlist?list=RD…; only the watch URL serves a generated mix.
+      assert.equal(
+        calls[0].at(-1),
+        'https://www.youtube.com/watch?v=abcdefghijk&list=RDabcdefghijk',
+      );
+      assert.ok(calls[0].includes('--yes-playlist'));
+      assert.equal(calls[0][calls[0].indexOf('--playlist-start') + 1], '21');
+
+      calls.length = 0;
+      await service.playlist('PLabcdefghijklmnop', 0);
+      assert.equal(
+        calls[0].at(-1),
+        'https://www.youtube.com/playlist?list=PLabcdefghijklmnop',
+      );
+      assert.ok(!calls[0].includes('--yes-playlist'));
+    },
+  );
+  await t.test(
     'direct audio URLs stay server-side and cookie or unknown headers are dropped',
     async () => {
       const resolved = await service.audio(entry.id, 'best');

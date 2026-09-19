@@ -101,6 +101,9 @@ export function App() {
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [remoteError, setRemoteError] = useState('');
   const [selectedPlaylist, setSelectedPlaylist] = useState<string>();
+  // A watch link that also carries a list plays from within that list once it loads.
+  const startAt = useRef<string | undefined>(undefined);
+  const opened = useRef(false);
   const [panel, setPanel] = useState('');
   const [playlistDialog, setPlaylistDialog] = useState<{ track?: Track }>();
   const [playlistName, setPlaylistName] = useState('');
@@ -330,13 +333,23 @@ export function App() {
           undefined,
           controller.signal,
         );
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted) {
         setRemote((previous) => ({
           ...result,
           tracks: append
             ? [...previous.tracks, ...result.tracks]
             : result.tracks,
         }));
+        // Only a link the listener just opened starts playing; search results never do.
+        if (opened.current && !append && result.tracks.length) {
+          const at = startAt.current
+            ? result.tracks.findIndex((item) => item.id === startAt.current)
+            : -1;
+          void player.play(result.tracks, at < 0 ? 0 : at);
+        }
+        opened.current = false;
+        startAt.current = undefined;
+      }
     } catch (error) {
       if (!controller.signal.aborted) setRemoteError((error as Error).message);
     } finally {
@@ -364,7 +377,10 @@ export function App() {
     setSelectedPlaylist(undefined);
     setView('songs');
     setLink('');
-    if (target?.playlistId && !target.videoId) {
+    if (target?.playlistId) {
+      // Keep the video so a "watch inside a list" link opens the list at that song.
+      startAt.current = target.videoId;
+      opened.current = true;
       setCatalog({ kind: 'playlist', id: target.playlistId });
       setQuery('');
     } else if (target?.videoId) {
