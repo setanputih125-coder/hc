@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { YtDlp } from '../server/ytdlp.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  cookiesFile,
+  extractorError,
+  potEnabled,
+  YtDlp,
+} from '../server/ytdlp.js';
 import { LrcLib } from '../server/lyrics.js';
 import type { Track } from '../shared/types.js';
 
@@ -110,8 +118,89 @@ test('yt-dlp arguments, caching, metadata, headers and input restrictions', asyn
       engine: 'yt-dlp',
       available: true,
       version: '2026.08.19',
+      cookies: false,
+      proofOfOrigin: false,
     });
   });
+});
+
+test('a cookies file is used only when configured and readable, and never inlined', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'undertone-cookies-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const jar = join(dir, 'cookies.txt');
+  await writeFile(
+    jar,
+    '# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t9999999999\tTEST\tnot-a-real-session\n',
+  );
+  const saved = process.env.MUSIC_COOKIES;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MUSIC_COOKIES;
+    else process.env.MUSIC_COOKIES = saved;
+  });
+
+  delete process.env.MUSIC_COOKIES;
+  assert.equal(cookiesFile(), undefined);
+  process.env.MUSIC_COOKIES = join(dir, 'missing.txt');
+  assert.equal(cookiesFile(), undefined, 'a missing file must not be passed');
+  process.env.MUSIC_COOKIES = dir;
+  assert.equal(cookiesFile(), undefined, 'a directory is not a cookies file');
+
+  process.env.MUSIC_COOKIES = jar;
+  const calls: string[][] = [];
+  const service = new YtDlp(async (args) => {
+    calls.push(args);
+    if (args.includes('--version')) return '2026.08.19';
+    return JSON.stringify({ title: 'Test results', entries: [] });
+  });
+  await service.search('test', 0);
+  const args = calls[0];
+  assert.equal(args[args.indexOf('--cookies') + 1], jar);
+  // The jar is referenced by path; its contents must never reach the argument list.
+  assert.ok(!args.some((value) => value.includes('not-a-real-session')));
+  assert.ok(args.includes('--no-plugin-dirs'), 'plugins stay off by default');
+  assert.equal((await service.health()).cookies, true);
+
+  assert.match(
+    extractorError('Sign in to confirm you are not a bot').message,
+    /saved sign-in/,
+    'with cookies configured the advice must be to refresh them',
+  );
+  delete process.env.MUSIC_COOKIES;
+  assert.match(
+    extractorError('Sign in to confirm you are not a bot').message,
+    /MUSIC_COOKIES/,
+    'without cookies the advice must name the setting that helps',
+  );
+});
+
+test('proof-of-origin support stays opt-in and only then enables plugins', async (t) => {
+  const saved = process.env.MUSIC_ATTESTATION;
+  t.after(() => {
+    if (saved === undefined) delete process.env.MUSIC_ATTESTATION;
+    else process.env.MUSIC_ATTESTATION = saved;
+  });
+  delete process.env.MUSIC_ATTESTATION;
+  assert.equal(potEnabled(), false);
+  process.env.MUSIC_ATTESTATION = 'yes';
+  assert.equal(potEnabled(), false, 'only an explicit 1 turns plugins on');
+
+  process.env.MUSIC_ATTESTATION = '1';
+  const calls: string[][] = [];
+  const service = new YtDlp(async (args) => {
+    calls.push(args);
+    if (args.includes('--version')) return '2026.08.19';
+    return JSON.stringify({ title: 'Test results', entries: [] });
+  });
+  await service.search('test', 0);
+  const args = calls[0];
+  assert.ok(!args.includes('--no-plugin-dirs'), 'the provider plugin must load');
+  assert.equal(
+    args[args.indexOf('--extractor-args') + 1],
+    'youtube:player_client=default,mweb',
+  );
+  // Remote component fetching stays off even when plugins are allowed.
+  assert.ok(args.includes('--no-remote-components'));
+  assert.equal((await service.health()).proofOfOrigin, true);
 });
 
 test('flat search metadata cannot replace the resolved recording used for lyric matching', async () => {

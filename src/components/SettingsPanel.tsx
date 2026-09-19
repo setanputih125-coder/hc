@@ -96,6 +96,22 @@ export function SettingsPanel({
               <p>{health.message}</p>
             </div>
           )}
+          <div className="connection-aids">
+            <span className={health?.cookies ? 'aid on' : 'aid'}>
+              {health?.cookies ? 'Saved sign-in in use' : 'No saved sign-in'}
+            </span>
+            <span className={health?.proofOfOrigin ? 'aid on' : 'aid'}>
+              {health?.proofOfOrigin
+                ? 'Request attestation on'
+                : 'Request attestation off'}
+            </span>
+          </div>
+          <p className="field-help">
+            If this server is asked to verify itself, these two settings are what
+            help. Both are configured on the server with <code>MUSIC_COOKIES</code>{' '}
+            and <code>MUSIC_ATTESTATION</code>; see the README. A home or mobile
+            connection is rarely challenged and needs neither.
+          </p>
           <label>
             Audio format
             <select

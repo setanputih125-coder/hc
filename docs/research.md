@@ -40,7 +40,8 @@ The older `get-cached` endpoint is not relied upon: it was absent from the curre
 - Title splitting (`Artist - Song`) only produces lyric-search hints. Automatic lyrics require matching artist/title and duration; ambiguous results are not assigned invented confidence.
 - LRC has no single governing standard. This parser uses positive `[offset]` to display lines earlier, supports line timestamps, and strips enhanced word timestamps. It does not implement word-level highlighting, translations, or romanization.
 - Lyrics are loaded when the lyrics panel is used, not by scanning an entire catalog. Responses are cached in memory for at most 24 hours and requests have a 350 ms gap.
-- No Google account, cookies, credentials, private playlists, DRM unlocks, verification workarounds, or OAuth integration are implemented.
+- No Google account, credentials, private playlists, DRM unlocks, verification workarounds, or OAuth integration are implemented. Cookies are supported only as an operator-supplied file path (`MUSIC_COOKIES`) handed to yt-dlp; Undertone never reads, stores, logs, or transmits their contents, and ships no cookies of its own.
+- Proof-of-origin tokens come from the third-party `bgutil-ytdlp-pot-provider` plugin, installed deliberately by `scripts/setup-pot.sh` and enabled with `MUSIC_ATTESTATION=1`. Because yt-dlp loads it through plugin directories, that flag is the only thing that relaxes `--no-plugin-dirs`; `--no-remote-components` stays on either way.
 - This is a private self-hosted application, not an official YouTube API client or a representation that YouTube endorses extraction. Upstream availability and access policies remain external constraints.
 
 ## Verification evidence
@@ -84,6 +85,22 @@ Checked on 19 September 2026 against the running application in desktop Chrome:
 - Browser verification found three real defects, all fixed and re-verified: palette search that could not match multi-word labels, checkbox labels inheriting a column layout, and a `.equalizer` class name that collided with the existing track-row animation.
 - A user-supplied mix link (`playlist?list=RDpsuRGfAaju4&playnext=1`) failed with an extractor error before this change. Live checks confirmed YouTube reports `RD…` mix lists as "unviewable" on the playlist URL while serving the same list, with working pagination, from the watch URL. After the fix the link loaded 20 tracks with a next page, and a `watch?v=…&list=…` link started at the fourth track of the mix rather than the first.
 - During those checks the sandbox's address began receiving YouTube's "Sign in to confirm you're not a bot" response for every video, including ones that had played minutes earlier. Playlist and mix listing continued to work; only audio resolution was blocked. This is an upstream IP-reputation restriction, not a code defect, and the app reports it verbatim rather than retrying.
+
+### Investigating the verification challenge
+
+Measured on 19 September 2026 from this sandbox, whose address belongs to a hosting provider (AS398465, US) and was actively challenged:
+
+| Attempt | Result |
+| --- | --- |
+| Default clients | Blocked on most videos, one public video still resolved |
+| `player_client` = `tv`, `mweb`, `ios`, `android_vr`, `web_embedded`, `web_safari`, `tv_simply` | All blocked on an affected video |
+| PO token provider installed and active (script and HTTP modes) | Still blocked on an affected video |
+| PO token provider with `mweb`, `web_embedded`, `tv_simply` | Resolved videos that were **not** individually flagged |
+| `--no-cache-dir` versus cached | No difference |
+
+The conclusion that shaped the implementation: the challenge is applied per address and per video before format selection, so no client choice clears it on its own, and a PO token is not a remedy for a flagged address — it addresses format and streaming restrictions, which is what yt-dlp's own guide claims for it. Cookies from a signed-in session are the only documented remedy for the challenge itself, which is why they are offered but kept opt-in, path-only, and off by default.
+
+Verified in the running application: with `MUSIC_ATTESTATION=1` a real video resolved to `audio/webm` through the token provider installed by `scripts/setup-pot.sh` at its default location. With `MUSIC_COOKIES` pointed at a deliberately invalid jar, yt-dlp accepted the file and YouTube rejected the session, producing the "refresh your saved sign-in" message rather than the generic one. Settings showed both states in the interface.
 
 Android device installation and background playback still need testing on physical hardware; the installable shell was verified as a manifest and service-worker contract, not on a device.
 - The checked-in setup command ran successfully in this Linux sandbox. The managed setup tool itself reported a lifecycle-claim block; the identical effective command was verified directly with `bash scripts/setup.sh` rather than claiming the blocked platform operation ran.

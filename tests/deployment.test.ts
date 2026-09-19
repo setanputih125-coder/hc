@@ -48,6 +48,7 @@ test('container configuration excludes local secrets and includes both runtimes'
   const ignore = (await readFile('.dockerignore', 'utf8')).split('\n');
   for (const entry of [
     '.git', '.env', '.env.*', '.hoplite', '.venv', 'data', 'node_modules', 'dist',
+    'cookies.txt', '*.cookies.txt',
   ])
     assert.ok(ignore.includes(entry), entry);
   const dockerfile = await readFile('Dockerfile', 'utf8');

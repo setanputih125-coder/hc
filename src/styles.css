@@ -3279,3 +3279,21 @@ input[type='range'].eq-slider {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.connection-aids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.connection-aids .aid {
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--muted);
+}
+.connection-aids .aid.on {
+  border-color: var(--green);
+  color: var(--green);
+}

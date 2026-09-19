@@ -159,7 +159,7 @@ test('stream URLs cannot turn the proxy into an arbitrary host or local-network 
     assert.throws(() => mediaUrl(url));
   assert.match(
     extractorError('Sign in to confirm you are not a bot').message,
-    /requires verification/,
+    /verify itself/,
   );
   assert.match(
     extractorError('Requested format is not available').message,

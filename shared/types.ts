@@ -128,4 +128,6 @@ export interface Health {
   version?: string;
   message?: string;
   engine: 'yt-dlp';
+  cookies?: boolean;
+  proofOfOrigin?: boolean;
 }

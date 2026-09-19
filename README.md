@@ -92,6 +92,40 @@ Press <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>K</kbd> for the command palette: pla
 
 **Settings → Backup & restore** exports saved songs, playlists, and preferences as one JSON file and restores it on another machine. Restoring replaces the current collection; listening history is not included.
 
+## YouTube asks for verification
+
+If playback fails with a message about verifying this server, YouTube does not trust the network address the request came from. Home and mobile connections are rarely challenged; datacenter and VPS addresses often are, and the block can apply to some videos while others still play. Neither option below is a bypass — they make a legitimate request look like what it is.
+
+**Settings → Audio streaming** shows which of the two is active.
+
+### Proof-of-origin tokens (no account, try this first)
+
+A yt-dlp plugin attests that requests come from a genuine client. It needs only Node.js, which Undertone already requires:
+
+```sh
+bash scripts/setup-pot.sh
+```
+
+Then add `MUSIC_ATTESTATION=1` to `.env` and restart. Tokens are generated on demand, so nothing extra has to keep running. This clears format and streaming restrictions; it does not help when YouTube has flagged the address itself.
+
+### A cookies file (uses an account)
+
+Export cookies from a browser that is signed in to YouTube and point `MUSIC_COOKIES` at the file:
+
+```sh
+MUSIC_COOKIES=/home/you/cookies.txt
+```
+
+Export them the way yt-dlp documents, or the session stops working within a day:
+
+1. Open a **private/incognito** window and sign in to YouTube. Use a spare account — an account used this way can be restricted.
+2. In that same tab, go to `https://www.youtube.com/robots.txt`.
+3. Export `youtube.com` cookies in Netscape format with a cookies.txt browser extension, then close the window and never reopen that session.
+
+Keep the file outside the repository, readable only by you (`chmod 600`), and out of backups. Undertone passes the path to yt-dlp and never reads, logs, or copies its contents. Cookies are the only option for age-restricted videos.
+
+Neither setting is required on a home connection, and keeping request volume modest matters more than either.
+
 ### Lyrics
 
 Open the lyrics panel from the player. Timed lyrics highlight the current line; clicking a line seeks to its position. Plain lyrics are displayed as text.
@@ -131,6 +165,8 @@ cp .env.example .env
 | `APP_PASSWORD` | Unset | Server password |
 | `PUBLIC_ORIGIN` | Unset | Permitted browser origin for LAN or proxy access |
 | `TRUST_PROXY` | Unset | Trusted proxy hops, such as `1` behind one reverse proxy |
+| `MUSIC_COOKIES` | Unset | Path to a cookies file used when YouTube asks the server to verify itself |
+| `MUSIC_ATTESTATION` | Unset | Set to `1` to attach proof-of-origin tokens after running `scripts/setup-pot.sh` |
 
 For LAN access, set `HOST=0.0.0.0`, a strong `APP_PASSWORD`, and `PUBLIC_ORIGIN` to the address you open in your browser, such as `http://192.168.1.50:3000`. Both password and origin are required when binding beyond loopback. Use HTTPS for remote access.
 
